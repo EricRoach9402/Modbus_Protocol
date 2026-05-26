@@ -49,6 +49,17 @@ typedef struct mb_tcp_config {
     const char *bind_iface;
     unsigned int connect_timeout_sec; /**< default 5 if 0 */
     unsigned int connect_retry_sec;   /**< default 3 if 0 */
+    /**
+     * Receive timeout applied to each accepted client socket (server mode only).
+     * Protects recv from blocking indefinitely on a slow or malicious client.
+     * 0 → caller-supplied default is used by the upper layer (e.g. mb_tcp_server).
+     */
+    uint32_t recv_timeout_ms;
+    /**
+     * Runtime cap on simultaneously connected clients (server mode only).
+     * 0 → MB_TCP_MAX_CLIENTS. Values above MB_TCP_MAX_CLIENTS are clamped.
+     */
+    uint8_t  max_clients;
     void *userdata;
 
     mb_tcp_logv_fn logv;

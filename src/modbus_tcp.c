@@ -38,6 +38,19 @@ static void mb_tcp_link_call(mb_tcp_ctx_t *ctx, int fd, int connected)
     }
 }
 
+/**
+ * Returns the effective maximum number of simultaneously connected clients.
+ * Clamps to MB_TCP_MAX_CLIENTS and falls back to it when cfg.max_clients is 0.
+ */
+static int effective_max_clients(const mb_tcp_ctx_t *ctx)
+{
+    if (ctx->cfg.max_clients == 0u ||
+        ctx->cfg.max_clients > (uint8_t)MB_TCP_MAX_CLIENTS) {
+        return MB_TCP_MAX_CLIENTS;
+    }
+    return (int)ctx->cfg.max_clients;
+}
+
 static void *mb_tcp_server_thread(void *arg);
 static void *mb_tcp_client_thread(void *arg);
 
@@ -181,17 +194,21 @@ static void *mb_tcp_server_thread(void *arg)
     int max_sd, sd, new_socket, activity;
     int connection_state = 0;
     socklen_t addrlen = sizeof(client_addr);
-    struct timeval timeout;
 
-    timeout.tv_sec = 5;
-    timeout.tv_usec = 0;
+    /* Resolve once: all slot loops in this thread use the same runtime cap. */
+    const int max_clients = effective_max_clients(ctx);
 
     while (ctx->keep_running) {
+        struct timeval timeout;
+
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
+
         FD_ZERO(&readfds);
         FD_SET(ctx->listen_sock, &readfds);
         max_sd = ctx->listen_sock;
 
-        for (int i = 0; i < MB_TCP_MAX_CLIENTS; i++) {
+        for (int i = 0; i < max_clients; i++) {
             sd = ctx->client_fds[i];
             if (sd > 0) {
                 FD_SET(sd, &readfds);
@@ -208,7 +225,7 @@ static void *mb_tcp_server_thread(void *arg)
         }
 
         if (activity == 0) {
-            for (int i = 0; i < MB_TCP_MAX_CLIENTS; i++) {
+            for (int i = 0; i < max_clients; i++) {
                 sd = ctx->client_fds[i];
                 if (sd > 0) {
                     char buffer[1];
@@ -249,8 +266,15 @@ static void *mb_tcp_server_thread(void *arg)
             setsockopt(new_socket, IPPROTO_TCP, TCP_KEEPINTVL, &keep_intvl, sizeof(keep_intvl));
             setsockopt(new_socket, IPPROTO_TCP, TCP_KEEPCNT, &keep_cnt, sizeof(keep_cnt));
 
+            if (ctx->cfg.recv_timeout_ms > 0u) {
+                struct timeval recv_tv;
+                recv_tv.tv_sec  = (time_t)(ctx->cfg.recv_timeout_ms / 1000u);
+                recv_tv.tv_usec = (suseconds_t)((ctx->cfg.recv_timeout_ms % 1000u) * 1000u);
+                setsockopt(new_socket, SOL_SOCKET, SO_RCVTIMEO, &recv_tv, sizeof(recv_tv));
+            }
+
             int placed = 0;
-            for (int i = 0; i < MB_TCP_MAX_CLIENTS; i++) {
+            for (int i = 0; i < max_clients; i++) {
                 if (ctx->client_fds[i] == 0) {
                     ctx->client_fds[i] = new_socket;
                     placed = 1;
@@ -270,7 +294,7 @@ static void *mb_tcp_server_thread(void *arg)
             }
         }
 
-        for (int i = 0; i < MB_TCP_MAX_CLIENTS; i++) {
+        for (int i = 0; i < max_clients; i++) {
             sd = ctx->client_fds[i];
             if (sd > 0 && FD_ISSET(sd, &readfds)) {
                 if (ctx->cfg.on_process) {

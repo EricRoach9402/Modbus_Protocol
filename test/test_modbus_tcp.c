@@ -39,14 +39,16 @@ static pthread_mutex_t reg_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /**
  * Server read callback: serves FC03 / FC04 requests from the register bank.
- * Returns -1 (→ Server Device Failure exception) if the address range falls
+ * Returns MODBUS_EX_ILLEGAL_DATA_ADDRESS if the address range falls
  * outside [0, REG_BANK_SIZE).
  */
-static int mock_read(uint16_t addr, uint16_t qty, uint16_t *out, void *userdata)
+static int mock_read(uint8_t function_code, uint16_t addr, uint16_t qty,
+                     uint16_t *out, void *userdata)
 {
+    (void)function_code;
     (void)userdata;
     if ((uint32_t)addr + (uint32_t)qty > (uint32_t)REG_BANK_SIZE) {
-        return -1;
+        return MODBUS_EX_ILLEGAL_DATA_ADDRESS;
     }
     pthread_mutex_lock(&reg_lock);
     for (uint16_t i = 0u; i < qty; i++) {
@@ -58,13 +60,13 @@ static int mock_read(uint16_t addr, uint16_t qty, uint16_t *out, void *userdata)
 
 /**
  * Server write callback: stores FC06 / FC16 values into the register bank.
- * Returns -1 if the address range is out of bounds.
+ * Returns MODBUS_EX_ILLEGAL_DATA_ADDRESS if the address range is out of bounds.
  */
 static int mock_write(uint16_t addr, uint16_t qty, const uint16_t *data, void *userdata)
 {
     (void)userdata;
     if ((uint32_t)addr + (uint32_t)qty > (uint32_t)REG_BANK_SIZE) {
-        return -1;
+        return MODBUS_EX_ILLEGAL_DATA_ADDRESS;
     }
     pthread_mutex_lock(&reg_lock);
     for (uint16_t i = 0u; i < qty; i++) {
@@ -209,14 +211,14 @@ static void test_exception_handling(mb_tcp_client_ctx_t *cli)
     /* addr=90 + qty=20 = 110, which exceeds REG_BANK_SIZE=100. */
     uint16_t out[20] = {0u};
     int rc = mb_tcp_client_read_holding_registers(cli, 90u, 20u, out);
-    check("FC03 read beyond bank (90+20>100) → MODBUS_EX_SERVER_DEVICE_FAILURE",
-          rc == (int)MODBUS_EX_SERVER_DEVICE_FAILURE);
+    check("FC03 read beyond bank (90+20>100) → MODBUS_EX_ILLEGAL_DATA_ADDRESS",
+          rc == (int)MODBUS_EX_ILLEGAL_DATA_ADDRESS);
 
     /* addr=99 + qty=2 = 101, which also exceeds REG_BANK_SIZE=100. */
     uint16_t data[2] = {1u, 2u};
     rc = mb_tcp_client_write_multiple_registers(cli, 99u, 2u, data);
-    check("FC16 write beyond bank (99+2>100) → MODBUS_EX_SERVER_DEVICE_FAILURE",
-          rc == (int)MODBUS_EX_SERVER_DEVICE_FAILURE);
+    check("FC16 write beyond bank (99+2>100) → MODBUS_EX_ILLEGAL_DATA_ADDRESS",
+          rc == (int)MODBUS_EX_ILLEGAL_DATA_ADDRESS);
 
     /* qty=0 is rejected client-side; no request is sent to the server. */
     uint16_t dummy = 0u;

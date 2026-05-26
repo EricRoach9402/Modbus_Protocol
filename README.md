@@ -9,8 +9,8 @@ Modbus_protocol/
 ├── include/
 │   ├── modbus_defines.h       # Modbus 常數、FC codes、exception codes
 │   ├── modbus_tcp.h           # 底層 transport（socket / thread）— 通常不直接使用
-│   ├── modbus_tcp_server.h    # Server API（← 同事使用這個）
-│   └── modbus_tcp_client.h    # Client API（← 同事使用這個）
+│   ├── modbus_tcp_server.h    # Server API
+│   └── modbus_tcp_client.h    # Client API
 ├── src/
 │   ├── modbus_tcp.c           # 底層 transport 實作
 │   ├── modbus_tcp_server.c    # Server API 實作

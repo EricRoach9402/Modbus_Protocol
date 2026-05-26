@@ -175,27 +175,40 @@ static void on_link_change(void *userdata, int fd, int connected)
 /* ════════════════════════════════════════════════════════════════════════════
  * ③ READ CALLBACK  (MODIFY HERE)
  *
- * Called by the server when a Modbus master issues FC03 / FC04.
+ * Called by the server when a Modbus master issues FC03 or FC04.
  * Fill `out[0..qty-1]` with current register values.
+ *
+ * function_code is MODBUS_FUNC_READ_HOLDING_REGISTERS (0x03) for FC03 or
+ * MODBUS_FUNC_READ_INPUT_REGISTERS (0x04) for FC04.  Use it to serve
+ * Holding and Input register spaces from separate data sources when needed.
  *
  * If this callback is NULL (not set in config), the server automatically
  * sends a Server Device Failure exception to the master.
  *
- * Return 0 on success.
- * Return non-zero to send a Server Device Failure exception to the master.
+ * Return values:
+ *   0                              – success
+ *   MODBUS_EX_ILLEGAL_DATA_ADDRESS – address out of range (sends exception 0x02)
+ *   MODBUS_EX_ILLEGAL_DATA_VALUE   – value constraint violation (sends exception 0x03)
+ *   MODBUS_EX_SERVER_DEVICE_FAILURE or any other non-zero – internal error (sends exception 0x04)
  * ════════════════════════════════════════════════════════════════════════════ */
 
-static int on_read(uint16_t addr, uint16_t qty, uint16_t *out, void *userdata)
+static int on_read(uint8_t function_code, uint16_t addr, uint16_t qty,
+                   uint16_t *out, void *userdata)
 {
     /* userdata = cfg.userdata (passed from configuration).
      * Use it to access application context (e.g., sensor data, device state).
      * Can be NULL if not configured. */
     (void)userdata;
 
+    /* MODIFY HERE: if your device distinguishes Holding Registers (FC03) from
+     * Input Registers (FC04), branch on function_code here and serve each from
+     * its own data source.  In this example both map to the same register bank. */
+    (void)function_code;
+
     if ((uint32_t)addr + (uint32_t)qty > REG_BANK_SIZE) {
         fprintf(stderr, "[WARN ] Read out of range: addr=%u qty=%u\n",
                 (unsigned)addr, (unsigned)qty);
-        return -1;
+        return MODBUS_EX_ILLEGAL_DATA_ADDRESS;
     }
 
     /* ── Refresh read-only registers with live values before serving ────
@@ -231,8 +244,11 @@ static int on_read(uint16_t addr, uint16_t qty, uint16_t *out, void *userdata)
  * If this callback is NULL (not set in config), the server automatically
  * sends a Server Device Failure exception to the master.
  *
- * Return 0 on success.
- * Return non-zero to send a Server Device Failure exception to the master.
+ * Return values:
+ *   0                              – success
+ *   MODBUS_EX_ILLEGAL_DATA_ADDRESS – address out of range (sends exception 0x02)
+ *   MODBUS_EX_ILLEGAL_DATA_VALUE   – value constraint violation (sends exception 0x03)
+ *   MODBUS_EX_SERVER_DEVICE_FAILURE or any other non-zero – internal error (sends exception 0x04)
  * ════════════════════════════════════════════════════════════════════════════ */
 
 static int on_write(uint16_t addr, uint16_t qty, const uint16_t *data, void *userdata)
@@ -243,12 +259,11 @@ static int on_write(uint16_t addr, uint16_t qty, const uint16_t *data, void *use
     (void)userdata;
 
     /* CRITICAL: Validate address range before accessing reg_bank.
-     * Invalid requests are rejected with a Server Device Failure exception.
      * Cast to uint32_t to prevent integer overflow when adding addr + qty. */
     if ((uint32_t)addr + (uint32_t)qty > REG_BANK_SIZE) {
         fprintf(stderr, "[WARN ] Write out of range: addr=%u qty=%u\n",
                 (unsigned)addr, (unsigned)qty);
-        return -1;
+        return MODBUS_EX_ILLEGAL_DATA_ADDRESS;
     }
 
     /* ── Apply writes to register bank ──
@@ -311,15 +326,21 @@ int main(void)
     /* ── Start the Modbus TCP server ───────────────────────────────────── */
     mb_tcp_server_ctx_t    server = {0};
     mb_tcp_server_config_t cfg    = {
-        .port          = SERVER_PORT,
-        .unit_id       = SERVER_UNIT_ID,
-        .on_read       = on_read,                    /* NULL → Server Device Failure exception */
-        .on_write      = on_write,                   /* NULL → Server Device Failure exception */
-        .userdata      = NULL,                        /* App context; passed to on_read/on_write (can be NULL) */
-        .logv          = server_log,                  /* Set to NULL for silent mode */
-        .log_userdata  = &log_ctx,                   /* Context for logv; can be NULL if not used */
-        .on_link       = on_link_change,             /* Set to NULL to disable connection tracking */
-        .link_userdata = &link_ctx,                  /* Context for on_link; can be NULL if on_link is NULL */
+        .port             = SERVER_PORT,
+        .unit_id          = SERVER_UNIT_ID,
+        /* 0 → use MB_TCP_MAX_CLIENTS (compile-time default).
+         * Set to a smaller value to cap accepted connections at runtime. */
+        .max_clients      = 0,
+        /* 0 → use MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS (5 000 ms).
+         * Increase if clients are allowed to send very large FC16 frames slowly. */
+        .recv_timeout_ms  = 0,
+        .on_read          = on_read,           /* NULL → Server Device Failure exception */
+        .on_write         = on_write,          /* NULL → Server Device Failure exception */
+        .userdata         = NULL,              /* App context; passed to on_read/on_write (can be NULL) */
+        .logv             = server_log,        /* Set to NULL for silent mode */
+        .log_userdata     = &log_ctx,          /* Context for logv; can be NULL if not used */
+        .on_link          = on_link_change,    /* Set to NULL to disable connection tracking */
+        .link_userdata    = &link_ctx,         /* Context for on_link; can be NULL if on_link is NULL */
     };
 
     if (mb_tcp_server_start(&server, &cfg) != 0) {

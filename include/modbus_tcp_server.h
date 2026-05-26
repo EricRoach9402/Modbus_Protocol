@@ -23,19 +23,32 @@
 extern "C" {
 #endif
 
-/** Pass as unit_id to accept incoming requests regardless of their unit ID. */
-#define MB_TCP_SERVER_UNIT_ID_ANY   0u
+/**
+ * Pass as unit_id to accept incoming requests regardless of their unit ID.
+ * 0xFF is used instead of 0x00 because Modbus defines Unit ID 0x00 as the
+ * broadcast address, giving it distinct protocol semantics.
+ */
+#define MB_TCP_SERVER_UNIT_ID_ANY   0xFFu
 
 /**
  * Called when a Modbus master reads holding or input registers (FC03 / FC04).
  *
- * @param addr      Starting register address (0-based).
- * @param qty       Number of registers requested (1 – MODBUS_MAX_READ_REGISTERS).
- * @param out       Caller-owned buffer to fill with @p qty values (host byte order).
- * @param userdata  Application context supplied in mb_tcp_server_config_t.
- * @return 0 on success; any other value causes a Server Device Failure exception.
+ * @param function_code  MODBUS_FUNC_READ_HOLDING_REGISTERS (0x03) or
+ *                       MODBUS_FUNC_READ_INPUT_REGISTERS (0x04).
+ *                       Use this to distinguish the two register spaces when
+ *                       your device models them separately.
+ * @param addr           Starting register address (0-based).
+ * @param qty            Number of registers requested (1 – MODBUS_MAX_READ_REGISTERS).
+ * @param out            Caller-owned buffer to fill with @p qty values (host byte order).
+ * @param userdata       Application context supplied in mb_tcp_server_config_t.
+ * @return 0 on success.
+ *         MODBUS_EX_ILLEGAL_DATA_ADDRESS (2) if the address range is out of bounds.
+ *         MODBUS_EX_ILLEGAL_DATA_VALUE   (3) if a value constraint is violated.
+ *         MODBUS_EX_SERVER_DEVICE_FAILURE (4) for internal errors.
+ *         Any other non-zero value is treated as MODBUS_EX_SERVER_DEVICE_FAILURE.
  */
-typedef int (*mb_srv_read_fn)(uint16_t addr, uint16_t qty, uint16_t *out, void *userdata);
+typedef int (*mb_srv_read_fn)(uint8_t function_code, uint16_t addr, uint16_t qty,
+                               uint16_t *out, void *userdata);
 
 /**
  * Called when a Modbus master writes registers (FC06 single / FC16 multiple).
@@ -44,7 +57,11 @@ typedef int (*mb_srv_read_fn)(uint16_t addr, uint16_t qty, uint16_t *out, void *
  * @param qty       Number of registers written (always 1 for FC06).
  * @param data      Register values in host byte order.
  * @param userdata  Application context supplied in mb_tcp_server_config_t.
- * @return 0 on success; any other value causes a Server Device Failure exception.
+ * @return 0 on success.
+ *         MODBUS_EX_ILLEGAL_DATA_ADDRESS (2) if the address range is out of bounds.
+ *         MODBUS_EX_ILLEGAL_DATA_VALUE   (3) if a value constraint is violated.
+ *         MODBUS_EX_SERVER_DEVICE_FAILURE (4) for internal errors.
+ *         Any other non-zero value is treated as MODBUS_EX_SERVER_DEVICE_FAILURE.
  */
 typedef int (*mb_srv_write_fn)(uint16_t addr, uint16_t qty,
                                const uint16_t *data, void *userdata);
@@ -53,19 +70,39 @@ typedef int (*mb_srv_write_fn)(uint16_t addr, uint16_t qty,
  * Server configuration.  All pointer fields must remain valid until
  * mb_tcp_server_stop() returns.
  *
- * Fields that accept NULL:
- *   - on_read:       NULL → return Server Device Failure exception to master
- *   - on_write:      NULL → return Server Device Failure exception to master
- *   - userdata:      application-defined context; can be NULL if not used by callbacks
- *   - logv:          NULL → suppress all log messages (silent mode)
- *   - log_userdata:  context passed to logv; can be NULL if not used
- *   - on_link:       NULL → no notification on client connect/disconnect
- *   - link_userdata: context passed to on_link; can be NULL if on_link is NULL
+ * Fields that accept NULL / zero:
+ *   - on_read:          NULL → return Server Device Failure exception to master
+ *   - on_write:         NULL → return Server Device Failure exception to master
+ *   - userdata:         application-defined context; can be NULL if not used by callbacks
+ *   - logv:             NULL → suppress all log messages (silent mode)
+ *   - log_userdata:     context passed to logv; can be NULL if not used
+ *   - on_link:          NULL → no notification on client connect/disconnect
+ *   - link_userdata:    context passed to on_link; can be NULL if on_link is NULL
+ *   - recv_timeout_ms:  0 → use default (MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS)
+ *   - max_clients:      0 → use compile-time limit (MB_TCP_MAX_CLIENTS)
  */
+
+/** Default per-request receive timeout applied to each accepted client socket. */
+#define MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS  5000u
+
 typedef struct mb_tcp_server_config {
     uint16_t port;
     /** Accepted unit ID.  Use MB_TCP_SERVER_UNIT_ID_ANY to accept all unit IDs. */
     uint8_t  unit_id;
+
+    /**
+     * Maximum number of simultaneously connected clients.
+     * 0 → use MB_TCP_MAX_CLIENTS (compile-time upper bound).
+     * Values above MB_TCP_MAX_CLIENTS are clamped to MB_TCP_MAX_CLIENTS.
+     */
+    uint8_t  max_clients;
+
+    /**
+     * Per-client socket receive timeout in milliseconds.
+     * Protects recv_exact from blocking indefinitely on a slow or malicious client.
+     * 0 → use MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS.
+     */
+    uint32_t recv_timeout_ms;
 
     /** Handler for FC03 (holding) and FC04 (input) reads.  NULL → exception reply. */
     mb_srv_read_fn  on_read;

@@ -87,6 +87,24 @@ static void srv_logv(mb_tcp_server_ctx_t *ctx, mb_tcp_log_level_t level,
     va_end(ap);
 }
 
+/* ── Exception code mapping ────────────────────────────────────────────── */
+
+/**
+ * Maps a callback return value to a Modbus exception code.
+ *
+ * Recognized exception codes (MODBUS_EX_ILLEGAL_FUNCTION through
+ * MODBUS_EX_SERVER_DEVICE_FAILURE) are passed through directly.
+ * Any other non-zero value falls back to MODBUS_EX_SERVER_DEVICE_FAILURE.
+ */
+static uint8_t exception_from_callback_rc(int rc)
+{
+    if (rc >= (int)MODBUS_EX_ILLEGAL_FUNCTION &&
+        rc <= (int)MODBUS_EX_SERVER_DEVICE_FAILURE) {
+        return (uint8_t)rc;
+    }
+    return (uint8_t)MODBUS_EX_SERVER_DEVICE_FAILURE;
+}
+
 /* ── Network I/O helpers ───────────────────────────────────────────────── */
 
 /**
@@ -231,11 +249,11 @@ static int server_on_process(void *userdata, int client_fd)
             }
             uint16_t data[MODBUS_MAX_READ_REGISTERS];
             int rc = ctx->cfg.on_read
-                     ? ctx->cfg.on_read(start_addr, qty, data, ctx->cfg.userdata)
+                     ? ctx->cfg.on_read(fc, start_addr, qty, data, ctx->cfg.userdata)
                      : -1;
             if (rc != 0) {
                 resp_len = build_exception_response(tid, unit_id, fc,
-                                                    MODBUS_EX_SERVER_DEVICE_FAILURE,
+                                                    exception_from_callback_rc(rc),
                                                     resp, sizeof(resp));
             } else {
                 resp_len = mb_tcp_build_read_registers_response(
@@ -253,7 +271,7 @@ static int server_on_process(void *userdata, int client_fd)
                      : -1;
             if (rc != 0) {
                 resp_len = build_exception_response(tid, unit_id, fc,
-                                                    MODBUS_EX_SERVER_DEVICE_FAILURE,
+                                                    exception_from_callback_rc(rc),
                                                     resp, sizeof(resp));
             } else {
                 /* FC06 success: echo the request frame unchanged. */
@@ -293,7 +311,7 @@ static int server_on_process(void *userdata, int client_fd)
                      : -1;
             if (rc != 0) {
                 resp_len = build_exception_response(tid, unit_id, fc,
-                                                    MODBUS_EX_SERVER_DEVICE_FAILURE,
+                                                    exception_from_callback_rc(rc),
                                                     resp, sizeof(resp));
             } else {
                 resp_len = build_fc16_response(tid, unit_id, start_addr, qty,
@@ -335,14 +353,18 @@ int mb_tcp_server_start(mb_tcp_server_ctx_t *ctx, const mb_tcp_server_config_t *
     ctx->cfg = *cfg;
 
     mb_tcp_config_t transport_cfg = {
-        .mode          = MB_TCP_MODE_LISTEN_SERVER,
-        .port          = cfg->port,
-        .userdata      = ctx,
-        .on_process    = server_on_process,
-        .logv          = cfg->logv,
-        .log_userdata  = cfg->log_userdata,
-        .on_link       = cfg->on_link,
-        .link_userdata = cfg->link_userdata,
+        .mode             = MB_TCP_MODE_LISTEN_SERVER,
+        .port             = cfg->port,
+        .recv_timeout_ms  = (cfg->recv_timeout_ms != 0u)
+                            ? cfg->recv_timeout_ms
+                            : MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS,
+        .max_clients      = cfg->max_clients,
+        .userdata         = ctx,
+        .on_process       = server_on_process,
+        .logv             = cfg->logv,
+        .log_userdata     = cfg->log_userdata,
+        .on_link          = cfg->on_link,
+        .link_userdata    = cfg->link_userdata,
     };
 
     return mb_tcp_start(&ctx->transport, &transport_cfg);
