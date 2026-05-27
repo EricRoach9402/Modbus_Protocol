@@ -343,6 +343,15 @@ send_response:
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
+void mb_tcp_server_config_init(mb_tcp_server_config_t *cfg)
+{
+    if (!cfg) {
+        return;
+    }
+    memset(cfg, 0, sizeof(*cfg));
+    cfg->recv_timeout_ms = MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS;
+}
+
 int mb_tcp_server_start(mb_tcp_server_ctx_t *ctx, const mb_tcp_server_config_t *cfg)
 {
     if (!ctx || !cfg) {
@@ -352,12 +361,14 @@ int mb_tcp_server_start(mb_tcp_server_ctx_t *ctx, const mb_tcp_server_config_t *
     memset(ctx, 0, sizeof(*ctx));
     ctx->cfg = *cfg;
 
+    if (ctx->cfg.recv_timeout_ms == 0u) {
+        ctx->cfg.recv_timeout_ms = MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS;
+    }
+
     mb_tcp_config_t transport_cfg = {
         .mode             = MB_TCP_MODE_LISTEN_SERVER,
         .port             = cfg->port,
-        .recv_timeout_ms  = (cfg->recv_timeout_ms != 0u)
-                            ? cfg->recv_timeout_ms
-                            : MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS,
+        .recv_timeout_ms  = ctx->cfg.recv_timeout_ms,
         .max_clients      = cfg->max_clients,
         .userdata         = ctx,
         .on_process       = server_on_process,

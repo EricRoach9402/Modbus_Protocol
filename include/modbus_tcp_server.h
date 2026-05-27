@@ -127,6 +127,37 @@ typedef struct mb_tcp_server_ctx {
 } mb_tcp_server_ctx_t;
 
 /**
+ * Initialise a server configuration with safe defaults for all optional fields.
+ *
+ * After this call the caller must still set the protocol-critical fields:
+ *   cfg.port     – TCP port to listen on (e.g. 502)
+ *   cfg.unit_id  – Modbus unit ID to accept (or MB_TCP_SERVER_UNIT_ID_ANY)
+ *
+ * Optional fields that are pre-filled:
+ *   recv_timeout_ms = MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS
+ *   max_clients     = 0  (→ MB_TCP_MAX_CLIENTS at runtime)
+ *   on_read         = NULL  (→ Server Device Failure exception on FC03/FC04)
+ *   on_write        = NULL  (→ Server Device Failure exception on FC06/FC16)
+ *   userdata        = NULL
+ *   logv            = NULL  (silent mode)
+ *   log_userdata    = NULL
+ *   on_link         = NULL  (no connection event notification)
+ *   link_userdata   = NULL
+ *
+ * Typical usage:
+ * @code
+ *   mb_tcp_server_config_t cfg;
+ *   mb_tcp_server_config_init(&cfg);
+ *   cfg.port     = 502;
+ *   cfg.unit_id  = 1;
+ *   cfg.on_read  = my_read_handler;
+ *   cfg.on_write = my_write_handler;
+ *   cfg.userdata = &my_app_ctx;
+ * @endcode
+ */
+void mb_tcp_server_config_init(mb_tcp_server_config_t *cfg);
+
+/**
  * Start the Modbus TCP server: bind port, launch listener thread.
  *
  * @param ctx  Zero-initialized context; must remain valid until mb_tcp_server_stop().

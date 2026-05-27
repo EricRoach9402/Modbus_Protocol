@@ -57,16 +57,18 @@
 
 /**
  * Total addressable register count. Requests outside [0, REG_BANK_SIZE) are
- * rejected with a Server Device Failure exception to protect against
- * buffer overflows and undefined behavior. Adjust this to match your
- * register layout (must be at least REG_DEVICE_ID + 1).
+ * rejected with an Illegal Data Address exception to protect against buffer
+ * overflows and undefined behavior. Adjust this to match your register layout
+ * (must be at least REG_DEVICE_ID + 1).
  */
 #define REG_BANK_SIZE           32u
 
-/* ── Internal register storage ─────────────────────────────────────────── */
+/* ── Application context passed through cfg.userdata ───────────────────── */
 
-static uint16_t       reg_bank[REG_BANK_SIZE];
-static pthread_mutex_t reg_lock = PTHREAD_MUTEX_INITIALIZER;
+typedef struct {
+    uint16_t        reg_bank[REG_BANK_SIZE];
+    pthread_mutex_t reg_lock;
+} server_app_ctx_t;
 
 /* ── Graceful shutdown ──────────────────────────────────────────────────── */
 
@@ -196,9 +198,12 @@ static int on_read(uint8_t function_code, uint16_t addr, uint16_t qty,
                    uint16_t *out, void *userdata)
 {
     /* userdata = cfg.userdata (passed from configuration).
-     * Use it to access application context (e.g., sensor data, device state).
-     * Can be NULL if not configured. */
-    (void)userdata;
+     * In this example it points to server_app_ctx_t, which owns the register
+     * bank and its mutex. */
+    server_app_ctx_t *app = (server_app_ctx_t *)userdata;
+    if (!app) {
+        return MODBUS_EX_SERVER_DEVICE_FAILURE;
+    }
 
     /* MODIFY HERE: if your device distinguishes Holding Registers (FC03) from
      * Input Registers (FC04), branch on function_code here and serve each from
@@ -214,24 +219,24 @@ static int on_read(uint8_t function_code, uint16_t addr, uint16_t qty,
     /* ── Refresh read-only registers with live values before serving ────
      * THREAD SAFETY: Acquire lock before reading/writing the register bank
      * to ensure consistency when multiple masters or threads access registers. */
-    pthread_mutex_lock(&reg_lock);
+    pthread_mutex_lock(&app->reg_lock);
 
     /* MODIFY HERE: replace these stubs with real sensor reads. */
-    reg_bank[REG_TEMPERATURE] = 253u;                       /* 25.3 °C stub  */
-    reg_bank[REG_HUMIDITY]    = 60u;                        /* 60 % stub     */
-    reg_bank[REG_STATUS]      = 0x0001u;                    /* "online" flag */
+    app->reg_bank[REG_TEMPERATURE] = 253u;                  /* 25.3 °C stub  */
+    app->reg_bank[REG_HUMIDITY]    = 60u;                   /* 60 % stub     */
+    app->reg_bank[REG_STATUS]      = 0x0001u;               /* "online" flag */
 
     uint32_t uptime_sec = (uint32_t)time(NULL);             /* simple uptime */
-    reg_bank[REG_UPTIME_LOW]  = (uint16_t)(uptime_sec & 0xFFFFu);
-    reg_bank[REG_UPTIME_HIGH] = (uint16_t)(uptime_sec >> 16);
+    app->reg_bank[REG_UPTIME_LOW]  = (uint16_t)(uptime_sec & 0xFFFFu);
+    app->reg_bank[REG_UPTIME_HIGH] = (uint16_t)(uptime_sec >> 16);
 
-    reg_bank[REG_DEVICE_ID]   = 0x0100u;                    /* version 1.0   */
+    app->reg_bank[REG_DEVICE_ID]   = 0x0100u;               /* version 1.0   */
 
     for (uint16_t i = 0u; i < qty; i++) {
-        out[i] = reg_bank[addr + i];
+        out[i] = app->reg_bank[addr + i];
     }
 
-    pthread_mutex_unlock(&reg_lock);
+    pthread_mutex_unlock(&app->reg_lock);
     return 0;
 }
 
@@ -254,9 +259,12 @@ static int on_read(uint8_t function_code, uint16_t addr, uint16_t qty,
 static int on_write(uint16_t addr, uint16_t qty, const uint16_t *data, void *userdata)
 {
     /* userdata = cfg.userdata (passed from configuration).
-     * Use it to access application context (e.g., device configuration, output drivers).
-     * Can be NULL if not configured. */
-    (void)userdata;
+     * In this example it points to server_app_ctx_t, which owns the register
+     * bank and its mutex. */
+    server_app_ctx_t *app = (server_app_ctx_t *)userdata;
+    if (!app) {
+        return MODBUS_EX_SERVER_DEVICE_FAILURE;
+    }
 
     /* CRITICAL: Validate address range before accessing reg_bank.
      * Cast to uint32_t to prevent integer overflow when adding addr + qty. */
@@ -269,11 +277,11 @@ static int on_write(uint16_t addr, uint16_t qty, const uint16_t *data, void *use
     /* ── Apply writes to register bank ──
      * THREAD SAFETY: Acquire lock before writing to the register bank
      * to ensure consistency when multiple masters or threads access registers. */
-    pthread_mutex_lock(&reg_lock);
+    pthread_mutex_lock(&app->reg_lock);
     for (uint16_t i = 0u; i < qty; i++) {
-        reg_bank[addr + i] = data[i];
+        app->reg_bank[addr + i] = data[i];
     }
-    pthread_mutex_unlock(&reg_lock);
+    pthread_mutex_unlock(&app->reg_lock);
 
     /* MODIFY HERE: act on specific register writes. */
     for (uint16_t i = 0u; i < qty; i++) {
@@ -302,8 +310,15 @@ int main(void)
     signal(SIGINT,  handle_signal);
     signal(SIGTERM, handle_signal);
 
-    /* Initialise register bank to zero. */
-    memset(reg_bank, 0, sizeof(reg_bank));
+    /* ── Application context ──────────────────────────────────────────────
+     * Passed through cfg.userdata and received by on_read / on_write.
+     * Keep application state here instead of using global variables. */
+    server_app_ctx_t app_ctx;
+    memset(&app_ctx, 0, sizeof(app_ctx));
+    if (pthread_mutex_init(&app_ctx.reg_lock, NULL) != 0) {
+        fprintf(stderr, "[ERROR] Failed to initialise register lock\n");
+        return 1;
+    }
 
     /* ── Log context ───────────────────────────────────────────────────────
      * MODIFY HERE: set node_name to identify this server instance in logs,
@@ -325,27 +340,35 @@ int main(void)
 
     /* ── Start the Modbus TCP server ───────────────────────────────────── */
     mb_tcp_server_ctx_t    server = {0};
-    mb_tcp_server_config_t cfg    = {
-        .port             = SERVER_PORT,
-        .unit_id          = SERVER_UNIT_ID,
-        /* 0 → use MB_TCP_MAX_CLIENTS (compile-time default).
-         * Set to a smaller value to cap accepted connections at runtime. */
-        .max_clients      = 0,
-        /* 0 → use MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS (5 000 ms).
-         * Increase if clients are allowed to send very large FC16 frames slowly. */
-        .recv_timeout_ms  = 0,
-        .on_read          = on_read,           /* NULL → Server Device Failure exception */
-        .on_write         = on_write,          /* NULL → Server Device Failure exception */
-        .userdata         = NULL,              /* App context; passed to on_read/on_write (can be NULL) */
-        .logv             = server_log,        /* Set to NULL for silent mode */
-        .log_userdata     = &log_ctx,          /* Context for logv; can be NULL if not used */
-        .on_link          = on_link_change,    /* Set to NULL to disable connection tracking */
-        .link_userdata    = &link_ctx,         /* Context for on_link; can be NULL if on_link is NULL */
-    };
+    mb_tcp_server_config_t cfg = {0};
+
+    mb_tcp_server_config_init(&cfg);       /* fill optional fields with safe defaults */
+
+    /* ── Required: protocol-critical fields ──────────────────────────── */
+    cfg.port    = SERVER_PORT;
+    cfg.unit_id = SERVER_UNIT_ID;
+
+    /* ── Required for useful behaviour: register callbacks ───────────── */
+    cfg.on_read  = on_read;
+    cfg.on_write = on_write;
+    cfg.userdata = &app_ctx;               /* passed to on_read / on_write */
+
+    /* ── Optional: logging ───────────────────────────────────────────── */
+    cfg.logv         = server_log;         /* set to NULL for silent mode */
+    cfg.log_userdata = &log_ctx;
+
+    /* ── Optional: connection event tracking ─────────────────────────── */
+    cfg.on_link       = on_link_change;    /* set to NULL to disable */
+    cfg.link_userdata = &link_ctx;
+
+    /* ── Optional: tunables (already set to defaults by config_init) ─── */
+    /* cfg.max_clients    = 3;             uncomment to cap connections    */
+    /* cfg.recv_timeout_ms = 10000;        uncomment to extend timeout     */
 
     if (mb_tcp_server_start(&server, &cfg) != 0) {
         fprintf(stderr, "[ERROR] Failed to start server on port %u\n",
                 (unsigned)SERVER_PORT);
+        pthread_mutex_destroy(&app_ctx.reg_lock);
         return 1;
     }
 
@@ -369,6 +392,7 @@ int main(void)
 
     fprintf(stderr, "\n[INFO ] Shutting down...\n");
     mb_tcp_server_stop(&server);
+    pthread_mutex_destroy(&app_ctx.reg_lock);
     fprintf(stderr, "[INFO ] Server stopped.\n");
     return 0;
 }
