@@ -1,11 +1,11 @@
 /**
- * @file server_example.c
+ * @file tcp_server_example.c
  * @brief Modbus TCP Server – example / hardware bringup template.
  *
  * How to use:
  *   1. Edit the "MODIFY HERE" sections below.
  *   2. Build:  make examples
- *   3. Run:    ./build/server_example
+ *   3. Run:    ./build/arm/tcp_server_example
  *
  * The server listens for a Modbus TCP master (e.g. Modbus Poll, another device)
  * and lets it read / write the register bank defined in this file.

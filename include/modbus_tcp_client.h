@@ -14,7 +14,7 @@
  *   Multiple threads may share one mb_tcp_client_ctx_t.  Requests are
  *   serialized internally: only one request is in flight at a time.
  *
- * Future RTU support will follow the same pattern via modbus_rtu_client.h.
+ * RTU support follows the same pattern via modbus_rtu_client.h.
  */
 
 #ifndef MODBUS_TCP_CLIENT_H

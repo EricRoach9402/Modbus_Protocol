@@ -1,11 +1,11 @@
 /**
- * @file client_example.c
+ * @file tcp_client_example.c
  * @brief Modbus TCP Client – example / hardware bringup template.
  *
  * How to use:
  *   1. Edit the "MODIFY HERE" sections below.
  *   2. Build:  make examples
- *   3. Run:    ./build/client_example
+ *   3. Run:    ./build/arm/tcp_client_example
  *
  * The client connects to a remote Modbus TCP server, polls a set of registers
  * on a configurable interval, and writes a value once at startup.

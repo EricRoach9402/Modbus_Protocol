@@ -1,6 +1,6 @@
 /**
  * @file modbus_defines.h
- * @brief Modbus function codes, TCP framing constants, and exception codes.
+ * @brief Modbus function codes, TCP/RTU framing constants, and exception codes.
  */
 
 #ifndef MODBUS_PROTOCOL_DEFINES_H
@@ -39,6 +39,23 @@
 
 /** Maximum Modbus TCP ADU size in bytes (Modbus spec + MBAP overhead). */
 #define MODBUS_TCP_MAX_ADU_LENGTH               260u
+
+/* -- Modbus RTU framing constants --------------------------------------- */
+
+/** Slave address used by Modbus RTU broadcast frames. Slaves do not reply. */
+#define MODBUS_RTU_BROADCAST_ADDRESS            0x00u
+
+/** CRC16 byte count appended at the end of every Modbus RTU ADU. */
+#define MODBUS_RTU_CRC_LEN                      2u
+
+/** Total byte length of a standard read / write-single RTU request ADU. */
+#define MODBUS_RTU_MIN_REQ_LENGTH               8u
+
+/** Maximum Modbus RTU ADU size in bytes (address + PDU + CRC). */
+#define MODBUS_RTU_MAX_ADU_LENGTH               256u
+
+/** Default RTU response / receive timeout for serial transactions. */
+#define MODBUS_RTU_DEFAULT_TIMEOUT_MS           1000u
 
 /* ── Modbus register count limits (Modbus specification) ───────────────── */
 

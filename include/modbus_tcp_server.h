@@ -10,7 +10,7 @@
  *   modbus_tcp.h/.c   -- TCP transport (threads, sockets, framing helpers)
  *   modbus_tcp_server  -- THIS FILE: application API sitting above the transport
  *
- * Future RTU support will follow the same pattern via modbus_rtu_server.h.
+ * RTU support follows the same pattern via modbus_rtu_server.h.
  */
 
 #ifndef MODBUS_TCP_SERVER_H
