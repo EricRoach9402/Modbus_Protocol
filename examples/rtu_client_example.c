@@ -85,6 +85,19 @@ int main(void)
         return 1;
     }
 
+    /*
+     * Opening the serial port only proves the device node exists; RTU has
+     * no handshake, so an absent slave would still "connect" successfully.
+     * Probe a known register before trusting the link.
+     */
+    int probe_rc = mb_rtu_client_probe_device(&client, REG_TEMPERATURE, 1u);
+    if (probe_rc != MB_RTU_CLIENT_OK) {
+        fprintf(stderr, "[ERROR] Device not responding on %s: %s (rc=%d)\n",
+                SERIAL_DEVICE, client_err_str(probe_rc), probe_rc);
+        mb_rtu_client_disconnect(&client);
+        return 1;
+    }
+
     uint16_t setpoint = 300u;
     int rc = mb_rtu_client_write_single_register(&client, REG_SETPOINT, setpoint);
     if (rc != MB_RTU_CLIENT_OK) {

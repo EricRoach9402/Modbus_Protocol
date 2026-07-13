@@ -377,6 +377,18 @@ int mb_rtu_client_write_single_register(mb_rtu_client_ctx_t *ctx,
     return validate_write_response(ctx, req, resp, total_len);
 }
 
+int mb_rtu_client_probe_device(mb_rtu_client_ctx_t *ctx,
+                               uint16_t addr, uint16_t qty)
+{
+    uint16_t probe_buf[MODBUS_MAX_READ_REGISTERS];
+
+    if (qty == 0u || qty > MODBUS_MAX_READ_REGISTERS) {
+        return MB_RTU_CLIENT_ERR_ARG;
+    }
+
+    return mb_rtu_client_read_holding_registers(ctx, addr, qty, probe_buf);
+}
+
 int mb_rtu_client_write_multiple_registers(mb_rtu_client_ctx_t *ctx,
                                            uint16_t addr, uint16_t qty,
                                            const uint16_t *data)

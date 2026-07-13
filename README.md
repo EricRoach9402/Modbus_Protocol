@@ -109,6 +109,7 @@ make test              # 只編譯 ARM binary，並提示需部署到板子上�
 - logv callback 驗證
 - 斷線後呼叫保護
 - RTU CRC16、request parser、response builder 驗證
+- RTU 設備存在探測（mb_rtu_client_probe_device）client 端參數驗證
 
 ---
 
@@ -319,6 +320,11 @@ int mb_rtu_client_write_single_register(mb_rtu_client_ctx_t *ctx,
 int mb_rtu_client_write_multiple_registers(mb_rtu_client_ctx_t *ctx,
                                            uint16_t addr, uint16_t qty,
                                            const uint16_t *data);
+
+// RTU 專用：探測 slave 是否真的存在並回應（connect() 只保證序列埠節點打開，
+// RTU 無 handshake，故無法單靠 connect() 判斷對端是否在線）
+int mb_rtu_client_probe_device(mb_rtu_client_ctx_t *ctx,
+                               uint16_t addr, uint16_t qty);
 ```
 
 ### Client 回傳值

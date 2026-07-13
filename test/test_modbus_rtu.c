@@ -111,6 +111,34 @@ static void test_read_response_builder(void)
           resp[5] == 0xABu && resp[6] == 0xCDu);
 }
 
+/**
+ * mb_rtu_client_probe_device() – client-side argument / state validation.
+ *
+ * Exercises the guard clauses only (qty range, not-connected) without a real
+ * serial device, mirroring how the TCP suite validates client-side rejection
+ * paths in test_not_connected_guard() / test_exception_handling().
+ */
+static void test_probe_device_guards(void)
+{
+    printf("\n-- mb_rtu_client_probe_device() Guards --\n");
+
+    mb_rtu_client_ctx_t ctx = {0};
+    ctx.fd = -1;                 /* never opened; matches post-disconnect state */
+    ctx.cfg.unit_id = 1u;
+
+    int rc = mb_rtu_client_probe_device(&ctx, 0u, 0u);
+    check("qty=0 rejected client-side -> MB_RTU_CLIENT_ERR_ARG",
+          rc == MB_RTU_CLIENT_ERR_ARG);
+
+    rc = mb_rtu_client_probe_device(&ctx, 0u, MODBUS_MAX_READ_REGISTERS + 1u);
+    check("qty > MODBUS_MAX_READ_REGISTERS rejected -> MB_RTU_CLIENT_ERR_ARG",
+          rc == MB_RTU_CLIENT_ERR_ARG);
+
+    rc = mb_rtu_client_probe_device(&ctx, 0u, 1u);
+    check("valid qty on unopened ctx -> MB_RTU_CLIENT_ERR_NOT_CONNECTED",
+          rc == MB_RTU_CLIENT_ERR_NOT_CONNECTED);
+}
+
 int main(void)
 {
     printf("==========================================\n");
@@ -121,6 +149,7 @@ int main(void)
     test_request_builders();
     test_parse_request();
     test_read_response_builder();
+    test_probe_device_guards();
 
     printf("\n==========================================\n");
     printf("  Results:  %d passed  |  %d failed\n",
