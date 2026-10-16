@@ -171,6 +171,29 @@ cfg.parity    = MB_RTU_PARITY_NONE;
 cfg.unit_id   = 1u;
 ```
 
+RTU Client / Server 時序欄位語意（不修改 lib 即可調整）：
+
+| 設定值 | 意義 |
+|--------|------|
+| `0` | 使用 library 預設 |
+| `MB_RTU_TIMING_DISABLED` | 明確關閉該等待 |
+| 其他正值 | 使用該明確延遲 |
+
+```c
+/* Client */
+cfg.response_timeout_ms    = 1000u;  // 等待回應逾時；0 = 1 s
+cfg.inter_frame_delay_us   = 0u;     // request 前 T3.5；0 = 自動，DISABLED = 關
+cfg.bus_handoff_silence_ms = 0u;     // 換 unit_id 靜默；0 = 30 ms，DISABLED = 關
+
+/* Server（回覆前） */
+cfg.inter_frame_delay_us   = 0u;     // response 前 T3.5；0 = 自動，DISABLED = 關
+```
+
+Client 的 `inter_frame_delay_us` 與 `bus_handoff_silence_ms` 從同一埠上一筆交易結束起算，取較大值。
+Server 的 `inter_frame_delay_us` 從收到 request 最後一 byte 起算，回覆前補足剩餘靜默。
+自動 T3.5 可用 `mb_rtu_t35_us()` 取得（> 19200 baud 固定 1750 us）。
+同一個 `device` 的多個 client context 共用一個 fd 與 bus lock，序列埠參數須一致。
+
 ---
 
 ### Step 2：重新編譯
@@ -310,6 +333,25 @@ int mb_tcp_client_write_multiple_registers(mb_tcp_client_ctx_t *ctx,
                                            uint16_t addr, uint16_t qty,
                                            const uint16_t *data);
 
+// FC04 input registers
+int mb_tcp_client_read_input_registers(mb_tcp_client_ctx_t *ctx,
+                                       uint16_t addr, uint16_t qty, uint16_t *out);
+
+// Coils / discrete inputs（FC01 / FC02 / FC05 / FC15）
+// bit 緩衝區一個 byte 代表一個 bit：讀出為 0/1，寫入時非 0 即 ON
+int mb_tcp_client_read_coils(mb_tcp_client_ctx_t *ctx,
+                             uint16_t addr, uint16_t qty, uint8_t *out);
+int mb_tcp_client_read_discrete_inputs(mb_tcp_client_ctx_t *ctx,
+                                       uint16_t addr, uint16_t qty, uint8_t *out);
+int mb_tcp_client_write_single_coil(mb_tcp_client_ctx_t *ctx,
+                                    uint16_t addr, uint8_t value);
+int mb_tcp_client_write_multiple_coils(mb_tcp_client_ctx_t *ctx,
+                                       uint16_t addr, uint16_t qty,
+                                       const uint8_t *values);
+
+// 不斷線切換目標 unit id（gateway 後多台裝置時使用）
+int mb_tcp_client_set_unit_id(mb_tcp_client_ctx_t *ctx, uint8_t unit_id);
+
 // RTU 對應 API：function prefix 改為 mb_rtu_client_*
 int mb_rtu_client_connect(mb_rtu_client_ctx_t *ctx, const mb_rtu_client_config_t *cfg);
 void mb_rtu_client_disconnect(mb_rtu_client_ctx_t *ctx);
@@ -341,7 +383,37 @@ int mb_rtu_client_probe_device(mb_rtu_client_ctx_t *ctx,
 | `MB_TCP_CLIENT_ERR_TID` (-6) | Transaction ID 不匹配 |
 
 RTU client 使用同樣回傳規則，錯誤碼 prefix 為 `MB_RTU_CLIENT_ERR_*`；
-RTU 沒有 TCP Transaction ID，因此 `-6` 代表 `MB_RTU_CLIENT_ERR_UNIT_ID`。
+RTU 沒有 TCP Transaction ID，因此 `-6` 代表 `MB_RTU_CLIENT_ERR_UNIT_ID`；
+`-7` 為 `MB_RTU_CLIENT_ERR_CRC`（回應 CRC 錯誤）。
+
+TCP client 逾時（完全沒收到回應）時連線保留，該請求的遲到回應會在下一次呼叫時依 TID 丟棄；
+若串流已無法信任（send / recv 失敗、MBAP 長度錯誤、frame 收到一半逾時），client 會關閉 socket，
+之後的呼叫回傳 `MB_TCP_CLIENT_ERR_NOT_CONNECTED`，需 `disconnect()` 後再 `connect()`。
+
+`MB_*_CLIENT_ERR_FRAME` 也涵蓋：TCP 回應 Protocol ID 非 0、FC06 / FC16 寫入回應的
+address / value / quantity 與請求不一致（TCP 與 RTU 皆檢查）。
+
+### 生命週期規則
+
+- ctx 第一次使用前須清零（`= {0}`）。
+- `*_start()` / `*_connect()` 對已啟動的 ctx 會回傳 `-1`，不會覆蓋執行中的狀態。
+- `*_stop()` / `*_disconnect()` 可重複呼叫，對未啟動或啟動失敗的 ctx 為 no-op。
+- stop / disconnect 後可直接再次 start / connect，不需重新 memset。
+
+### RTU 行為說明
+
+- **共用匯流排**：同一個序列裝置（以 `realpath()` 正規化，`/dev/serial/by-id/...`
+  symlink 視為同一個）的多個 client ctx 共用同一個 fd 與 bus lock。可開啟的不同裝置
+  數量不設上限；最後一個 ctx 斷線後該埠即關閉。共用同一埠的 ctx 序列參數與
+  `rs485_mode` 須一致，否則 connect 失敗。
+- **Broadcast（unit id 0）**：只允許寫入類 FC（05 / 06 / 15 / 16），送出後不等待回應即回傳
+  成功；讀取類 FC 於 client 端回傳 `MB_RTU_CLIENT_ERR_ARG`。Server 收到 broadcast 寫入會執行但不回覆。
+- **Unit id 不符**：回應的 slave address 與請求不同時回傳 `MB_RTU_CLIENT_ERR_UNIT_ID`。
+- **回應逾時**：`response_timeout_ms` 是整個回應的總期限（從送出請求後開始算），
+  另外自動加上一個最大 RTU frame 在目前 baud 下的傳輸時間，因此慢速 baud 的大量讀取
+  不會被誤判逾時，而逐 byte 拖延的 slave 也無法無限期佔住 bus。
+- **Server 重新同步**：RTU server 會聽到同一條 RS-485 上其他 slave 的回應；
+  CRC 錯誤或格式不符的資料會逐 byte 滑動跳過，直到找到有效的請求邊界。
 
 ---
 
@@ -349,9 +421,41 @@ RTU 沒有 TCP Transaction ID，因此 `-6` 代表 `MB_RTU_CLIENT_ERR_UNIT_ID`�
 
 | FC | 名稱 | Server 接收 | Client 發送 |
 |---|---|---|---|
-| 0x03 | Read Holding Registers | ✅ | ✅ |
-| 0x04 | Read Input Registers | ✅ | — |
-| 0x06 | Write Single Register | ✅ | ✅ |
-| 0x10 | Write Multiple Registers | ✅ | ✅ |
+| 0x01 | Read Coils | ✅ `on_read_bits` | ✅ |
+| 0x02 | Read Discrete Inputs | ✅ `on_read_bits` | ✅ |
+| 0x03 | Read Holding Registers | ✅ `on_read` | ✅ |
+| 0x04 | Read Input Registers | ✅ `on_read` | ✅ |
+| 0x05 | Write Single Coil | ✅ `on_write_bits`（qty = 1） | ✅ |
+| 0x06 | Write Single Register | ✅ `on_write`（qty = 1） | ✅ |
+| 0x0F | Write Multiple Coils | ✅ `on_write_bits` | ✅ |
+| 0x10 | Write Multiple Registers | ✅ `on_write` | ✅ |
 
-未支援的 FC 會收到 `MODBUS_EX_ILLEGAL_FUNCTION` exception 回應。
+TCP 與 RTU 支援相同的 FC。未支援的 FC，或對應 callback 為 `NULL` 的 FC，
+會收到 `MODBUS_EX_ILLEGAL_FUNCTION` exception 回應。
+
+Server callback 回傳值：`0` 成功；`MODBUS_EX_*`（01–06、08、0A、0B）原樣回傳為 exception；
+其他非零值一律回傳 `MODBUS_EX_SERVER_DEVICE_FAILURE`。數量超出規格
+（bit 讀 2000 / 寫 1968、register 讀 125 / 寫 123）、byte count 不符、FC05 值非
+`0xFF00` / `0x0000` 時，server 直接回 `MODBUS_EX_ILLEGAL_DATA_VALUE`，不會呼叫 callback。
+
+---
+
+## 可配置項目（不修改 lib）
+
+### TCP server
+
+| 欄位 | `0` 的意義 | 說明 |
+|---|---|---|
+| `max_clients` | `MB_TCP_DEFAULT_MAX_CLIENTS`（10） | 同時連線數，執行期配置，無編譯期上限（受 `FD_SETSIZE` 限制） |
+| `keepalive_idle_sec` | 5 s | 設為 `MB_TCP_KEEPALIVE_DISABLED` 完全關閉 keepalive |
+| `keepalive_interval_sec` | 5 s | keepalive 探測間隔 |
+| `keepalive_count` | 1 | 探測失敗幾次判定斷線 |
+| `idle_poll_ms` | 5000 ms | 無事件時 server thread 的 select 週期 |
+
+### RTU RS-485 方向控制（client 與 server 欄位相同）
+
+| 欄位 | 說明 |
+|---|---|
+| `rs485_mode` | `MB_RTU_RS485_NONE`（預設）/ `RTS_ON_SEND` / `RTS_AFTER_SEND`；透過 Linux `TIOCSRS485` 由 kernel 控制 DE/RE。驅動不支援時 connect / start 失敗 |
+| `on_tx_enable` / `tx_userdata` | 送出 frame 前呼叫 `(ud, fd, 1)`，`tcdrain()` 完成後呼叫 `(ud, fd, 0)`；用於 GPIO 控制收發器 |
+| `local_echo` | 收發器會回送自己 TX 時設 `1`；送出後讀掉等長的 echo（client 會比對內容，不符回傳 `ERR_TRANSPORT`） |

@@ -68,8 +68,21 @@ mb_tcp_server_stop(&server);
 | FC04 – Read Input Registers | 讀取 Input Registers | `on_read`（`function_code = 0x04`） |
 | FC06 – Write Single Register | 寫入單一暫存器 | `on_write`（`qty` 固定為 1） |
 | FC16 – Write Multiple Registers | 寫入多個暫存器 | `on_write` |
+| FC01 – Read Coils | 讀取 Coils | `on_read_bits`（`function_code = 0x01`） |
+| FC02 – Read Discrete Inputs | 讀取 Discrete Inputs | `on_read_bits`（`function_code = 0x02`） |
+| FC05 – Write Single Coil | 寫入單一 Coil | `on_write_bits`（`qty` 固定為 1） |
+| FC15 – Write Multiple Coils | 寫入多個 Coils | `on_write_bits` |
 
-其他功能碼（FC01、FC02、FC05 等）的請求會收到 `Illegal Function` 例外回應，不會觸發任何回呼。
+Bit 回呼的緩衝區一個 byte 代表一個 bit（0 / 1），封包的 bit packing 由 library 處理：
+
+```c
+typedef int (*mb_srv_read_bits_fn)(uint8_t function_code, uint16_t addr, uint16_t qty,
+                                   uint8_t *out, void *userdata);
+typedef int (*mb_srv_write_bits_fn)(uint16_t addr, uint16_t qty,
+                                    const uint8_t *bits, void *userdata);
+```
+
+其他功能碼，或對應回呼為 `NULL` 的功能碼，會收到 `Illegal Function` 例外回應，不會觸發任何回呼。
 
 ---
 
@@ -181,7 +194,7 @@ static int on_read(uint8_t function_code, uint16_t addr, uint16_t qty,
 }
 ```
 
-> **若 `on_read` 設為 `NULL`**，Server 對所有讀取請求自動回應 Exception 04。
+> **若 `on_read` 設為 `NULL`**，Server 對 FC03/FC04 請求自動回應 Exception 01（Illegal Function）。
 
 ---
 
@@ -248,7 +261,7 @@ static int on_write(uint16_t addr, uint16_t qty,
 }
 ```
 
-> **若 `on_write` 設為 `NULL`**，Server 對所有寫入請求自動回應 Exception 04。
+> **若 `on_write` 設為 `NULL`**，Server 對 FC06/FC16 請求自動回應 Exception 01（Illegal Function）。
 
 ---
 
@@ -278,7 +291,9 @@ cfg.on_write = on_write;
 cfg.userdata = &my_app_ctx;  // 若無需傳遞自訂資料可設 NULL
 
 // 可選：僅在需要覆寫預設值時才設定
-// cfg.max_clients    = 3;       // 預設：MB_TCP_MAX_CLIENTS（10）
+// cfg.max_clients    = 3;       // 預設：MB_TCP_DEFAULT_MAX_CLIENTS（10），無編譯期上限
+// cfg.keepalive_idle_sec = MB_TCP_KEEPALIVE_DISABLED; // 預設 5 s；DISABLED = 關閉
+// cfg.idle_poll_ms   = 1000;    // 預設：5000 ms
 // cfg.recv_timeout_ms = 10000;  // 預設：5000 ms
 // cfg.logv           = my_logv; // 預設：NULL（靜默）
 // cfg.on_link        = my_link; // 預設：NULL（不通知）
@@ -289,9 +304,15 @@ cfg.userdata = &my_app_ctx;  // 若無需傳遞自訂資料可設 NULL
 | 欄位 | 預設值 | 說明 |
 |------|--------|------|
 | `recv_timeout_ms` | 5000 ms | 每個 Client Socket 的接收逾時 |
-| `max_clients` | 0 → `MB_TCP_MAX_CLIENTS`（10） | 最大同時連線數 |
-| `on_read` | `NULL` | FC03/FC04 回應 Exception 04 |
-| `on_write` | `NULL` | FC06/FC16 回應 Exception 04 |
+| `max_clients` | 0 → `MB_TCP_DEFAULT_MAX_CLIENTS`（10） | 最大同時連線數（執行期配置） |
+| `keepalive_idle_sec` | 0 → 5 s | `MB_TCP_KEEPALIVE_DISABLED` 關閉 keepalive |
+| `keepalive_interval_sec` | 0 → 5 s | 探測間隔 |
+| `keepalive_count` | 0 → 1 | 探測失敗次數 |
+| `idle_poll_ms` | 0 → 5000 ms | 無事件時的 select 週期 |
+| `on_read` | `NULL` | FC03/FC04 回應 Exception 01 |
+| `on_write` | `NULL` | FC06/FC16 回應 Exception 01 |
+| `on_read_bits` | `NULL` | FC01/FC02 回應 Exception 01 |
+| `on_write_bits` | `NULL` | FC05/FC15 回應 Exception 01 |
 | `userdata` | `NULL` | — |
 | `logv` | `NULL` | 靜默模式 |
 | `on_link` | `NULL` | 不通知連線事件 |

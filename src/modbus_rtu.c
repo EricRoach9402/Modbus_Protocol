@@ -10,10 +10,15 @@
 #include <pthread.h>
 #include <stdarg.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+
+#ifdef __linux__
+#include <linux/serial.h>
+#endif
 
 #include "modbus_rtu.h"
 
@@ -33,6 +38,9 @@
 #define RTU_STANDARD_PDU_LEN      5u
 #define RTU_READ_RESPONSE_BASE    5u
 #define RTU_PROCESS_PAUSE_NS      1000000L
+
+#define RTU_T35_FIXED_BAUD_ABOVE  19200u
+#define RTU_T35_FIXED_US          1750u
 
 static void mb_rtu_logv(mb_rtu_ctx_t *ctx, mb_rtu_log_level_t level, const char *fmt, ...)
 {
@@ -147,6 +155,30 @@ static int configure_serial(int fd, const mb_rtu_serial_config_t *serial)
     return 0;
 }
 
+static int configure_rs485(int fd, mb_rtu_rs485_mode_t mode)
+{
+    if (mode == MB_RTU_RS485_NONE) {
+        return 0;
+    }
+#ifdef __linux__
+    struct serial_rs485 rs485;
+
+    if (mode != MB_RTU_RS485_RTS_ON_SEND && mode != MB_RTU_RS485_RTS_AFTER_SEND) {
+        errno = EINVAL;
+        return -1;
+    }
+    memset(&rs485, 0, sizeof(rs485));
+    rs485.flags = SER_RS485_ENABLED;
+    rs485.flags |= (mode == MB_RTU_RS485_RTS_ON_SEND)
+                   ? SER_RS485_RTS_ON_SEND : SER_RS485_RTS_AFTER_SEND;
+    return ioctl(fd, TIOCSRS485, &rs485);
+#else
+    (void)fd;
+    errno = ENOTSUP;
+    return -1;
+#endif
+}
+
 static void *mb_rtu_thread(void *arg)
 {
     mb_rtu_ctx_t *ctx = (mb_rtu_ctx_t *)arg;
@@ -190,7 +222,7 @@ int mb_rtu_open(int *fd_out, const mb_rtu_serial_config_t *serial)
         return -1;
     }
 
-    if (configure_serial(fd, serial) != 0) {
+    if (configure_serial(fd, serial) != 0 || configure_rs485(fd, serial->rs485_mode) != 0) {
         close(fd);
         return -1;
     }
@@ -210,6 +242,9 @@ void mb_rtu_close(int *fd)
 int mb_rtu_start(mb_rtu_ctx_t *ctx, const mb_rtu_config_t *cfg)
 {
     if (!ctx || !cfg || !cfg->serial.device || cfg->serial.device[0] == '\0') {
+        return -1;
+    }
+    if (ctx->initialized) {
         return -1;
     }
 
@@ -257,43 +292,33 @@ int mb_rtu_start(mb_rtu_ctx_t *ctx, const mb_rtu_config_t *cfg)
         return -1;
     }
 
+    ctx->initialized = 1;
     mb_rtu_link_call(ctx, ctx->serial_fd, 1);
     return 0;
 }
 
 void mb_rtu_stop(mb_rtu_ctx_t *ctx)
 {
-    if (!ctx) {
+    if (!ctx || !ctx->initialized) {
         return;
     }
 
-    int was_running = ctx->keep_running;
     ctx->keep_running = 0;
+
+    /*
+     * Join before close: on_process is non-blocking (O_NONBLOCK fd), so the
+     * thread exits within one loop iteration, and closing afterwards avoids
+     * the thread touching a closed (possibly reused) fd number.
+     */
+    pthread_join(ctx->thread, NULL);
 
     if (ctx->serial_fd >= 0) {
         mb_rtu_link_call(ctx, ctx->serial_fd, 0);
-
-        /*
-         * Set serial_fd to -1 before close() so that new loop iterations in
-         * mb_rtu_thread see -1 and exit without calling on_process.  There is
-         * still a narrow window where the thread has already read the old fd
-         * value into a local variable and is about to call on_process; in that
-         * case the subsequent read() on the closed fd returns EBADF (-1), which
-         * propagates as a transport error and the thread exits cleanly because
-         * keep_running is already 0.  This is an accepted design trade-off:
-         * avoiding it would require a mutex around every fd access in the loop,
-         * which adds overhead not justified for a clean-shutdown path.
-         */
-        int saved_fd = ctx->serial_fd;
-        ctx->serial_fd = -1;
-        close(saved_fd);
-    }
-
-    if (was_running) {
-        pthread_join(ctx->thread, NULL);
+        mb_rtu_close(&ctx->serial_fd);
     }
 
     pthread_mutex_destroy(&ctx->lock);
+    ctx->initialized = 0;
 }
 
 uint16_t mb_rtu_crc16(const uint8_t *data, size_t length)
@@ -342,6 +367,35 @@ int mb_rtu_validate_crc(const uint8_t *frame, size_t frame_len)
                       | ((uint16_t)frame[payload_len + 1u] << 8);
 
     return (expected == received) ? 0 : -1;
+}
+
+uint32_t mb_rtu_t35_us(const mb_rtu_serial_config_t *serial)
+{
+    if (!serial) {
+        return 0u;
+    }
+
+    uint32_t baud_rate = (serial->baud_rate == 0u) ? 9600u : serial->baud_rate;
+    if (baud_rate > RTU_T35_FIXED_BAUD_ABOVE) {
+        return RTU_T35_FIXED_US;
+    }
+
+    uint32_t char_bits = 1u + effective_data_bits(serial->data_bits) +
+                         effective_stop_bits(serial->stop_bits) +
+                         ((serial->parity != MB_RTU_PARITY_NONE) ? 1u : 0u);
+
+    return (uint32_t)(((uint64_t)char_bits * 3500000u + baud_rate - 1u) / baud_rate);
+}
+
+uint32_t mb_rtu_effective_timing(uint32_t configured, uint32_t default_value)
+{
+    if (configured == MB_RTU_TIMING_DISABLED) {
+        return 0u;
+    }
+    if (configured == 0u) {
+        return default_value;
+    }
+    return configured;
 }
 
 int mb_rtu_build_request_basis(uint8_t unit_id, int function, int addr,

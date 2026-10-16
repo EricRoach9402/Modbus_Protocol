@@ -43,12 +43,31 @@ typedef enum mb_rtu_parity {
     MB_RTU_PARITY_ODD
 } mb_rtu_parity_t;
 
+/**
+ * RS-485 driver-enable (DE/RE) handling done by the kernel UART driver.
+ * For GPIO-driven transceivers use mb_rtu_tx_enable_fn instead.
+ */
+typedef enum mb_rtu_rs485_mode {
+    MB_RTU_RS485_NONE = 0,           /**< Leave the driver's RS-485 settings untouched. */
+    MB_RTU_RS485_RTS_ON_SEND,        /**< TIOCSRS485: RTS asserted (high) while sending. */
+    MB_RTU_RS485_RTS_AFTER_SEND      /**< TIOCSRS485: RTS asserted after sending (active low). */
+} mb_rtu_rs485_mode_t;
+
+/**
+ * Optional transmit-enable hook, e.g. to drive an RS-485 DE GPIO.
+ * Called with @p enable = 1 right before a frame is written and with 0 after
+ * tcdrain() returns.  Must not block for long.
+ */
+typedef void (*mb_rtu_tx_enable_fn)(void *userdata, int fd, int enable);
+
 typedef struct mb_rtu_serial_config {
     const char *device;              /**< Serial device path, e.g. "/dev/ttyUSB0". */
     uint32_t baud_rate;              /**< 0 = 9600. Supports common POSIX baud rates. */
     uint8_t data_bits;               /**< 0 = 8. Supported values: 7 or 8. */
     uint8_t stop_bits;               /**< 0 = 1. Supported values: 1 or 2. */
     mb_rtu_parity_t parity;          /**< Default: MB_RTU_PARITY_NONE. */
+    /** Kernel RS-485 mode; open fails if the driver rejects TIOCSRS485. */
+    mb_rtu_rs485_mode_t rs485_mode;
 } mb_rtu_serial_config_t;
 
 typedef struct mb_rtu_config {
@@ -75,10 +94,16 @@ typedef struct mb_rtu_ctx {
     pthread_mutex_t lock;
     mb_rtu_config_t cfg;
     int serial_fd;
+    int initialized;                 /**< Internal: nonzero between start and stop. */
 } mb_rtu_ctx_t;
 
-/** Zero ctx before first use; copies @p cfg (pointer fields must remain valid until stop). */
+/**
+ * Zero ctx before first use; copies @p cfg (pointer fields must remain valid until stop).
+ * @return 0 on success, -1 on error (including ctx already started).
+ */
 int mb_rtu_start(mb_rtu_ctx_t *ctx, const mb_rtu_config_t *cfg);
+
+/** Idempotent: safe on a zero-initialized ctx, after a failed start, or when called twice. */
 void mb_rtu_stop(mb_rtu_ctx_t *ctx);
 
 /** Standalone serial open/close helpers used by the blocking client API. */
@@ -89,6 +114,32 @@ void mb_rtu_close(int *fd);
 uint16_t mb_rtu_crc16(const uint8_t *data, size_t length);
 int mb_rtu_append_crc(uint8_t *frame, size_t frame_len_without_crc, size_t frame_cap);
 int mb_rtu_validate_crc(const uint8_t *frame, size_t frame_len);
+
+/**
+ * @brief Modbus RTU T3.5 inter-frame silence for the given serial framing.
+ *
+ * Character length is 1 start + data + parity + stop bits.  Above 19200 baud
+ * the spec's fixed 1750 us is used.
+ *
+ * @param serial Serial settings; zero fields use the mb_rtu_open() defaults.
+ * @return T3.5 in microseconds, or 0 if @p serial is NULL.
+ */
+uint32_t mb_rtu_t35_us(const mb_rtu_serial_config_t *serial);
+
+/**
+ * Sentinel for optional RTU timing fields: explicitly disable the delay.
+ * Leaving the field as 0 still means "use the library default".
+ */
+#define MB_RTU_TIMING_DISABLED  UINT32_MAX
+
+/**
+ * @brief Resolve an optional timing config field.
+ *
+ * @param configured  0 → @p default_value;
+ *                    MB_RTU_TIMING_DISABLED → 0 (off);
+ *                    otherwise → @p configured.
+ */
+uint32_t mb_rtu_effective_timing(uint32_t configured, uint32_t default_value);
 
 /**
  * Build a Modbus RTU request for a 5-byte PDU after the unit id:

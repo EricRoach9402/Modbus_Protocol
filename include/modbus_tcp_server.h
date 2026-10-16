@@ -67,19 +67,41 @@ typedef int (*mb_srv_write_fn)(uint16_t addr, uint16_t qty,
                                const uint16_t *data, void *userdata);
 
 /**
+ * Called when a Modbus master reads coils (FC01) or discrete inputs (FC02).
+ *
+ * @param function_code  MODBUS_FUNC_READ_COILS or MODBUS_FUNC_READ_DISCRETE_INPUTS.
+ * @param qty            Number of bits requested (1 – MODBUS_MAX_READ_BITS).
+ * @param out            @p qty bytes, pre-zeroed; set each to 0 (OFF) or nonzero (ON).
+ * @return 0 or a Modbus exception code, as for mb_srv_read_fn.
+ */
+typedef int (*mb_srv_read_bits_fn)(uint8_t function_code, uint16_t addr, uint16_t qty,
+                                   uint8_t *out, void *userdata);
+
+/**
+ * Called when a Modbus master writes coils (FC05 single / FC15 multiple).
+ *
+ * @param qty   Number of coils written (always 1 for FC05).
+ * @param bits  @p qty bytes, each 0 (OFF) or 1 (ON).
+ * @return 0 or a Modbus exception code, as for mb_srv_write_fn.
+ */
+typedef int (*mb_srv_write_bits_fn)(uint16_t addr, uint16_t qty,
+                                    const uint8_t *bits, void *userdata);
+
+/**
  * Server configuration.  All pointer fields must remain valid until
  * mb_tcp_server_stop() returns.
  *
  * Fields that accept NULL / zero:
- *   - on_read:          NULL → return Server Device Failure exception to master
- *   - on_write:         NULL → return Server Device Failure exception to master
+ *   - on_read / on_write / on_read_bits / on_write_bits:
+ *                       NULL → the matching function codes reply ILLEGAL_FUNCTION
  *   - userdata:         application-defined context; can be NULL if not used by callbacks
  *   - logv:             NULL → suppress all log messages (silent mode)
  *   - log_userdata:     context passed to logv; can be NULL if not used
  *   - on_link:          NULL → no notification on client connect/disconnect
  *   - link_userdata:    context passed to on_link; can be NULL if on_link is NULL
  *   - recv_timeout_ms:  0 → use default (MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS)
- *   - max_clients:      0 → use compile-time limit (MB_TCP_MAX_CLIENTS)
+ *   - max_clients:      0 → MB_TCP_DEFAULT_MAX_CLIENTS
+ *   - keepalive_*, idle_poll_ms: 0 → transport defaults (see mb_tcp_config_t)
  */
 
 /** Default per-request receive timeout applied to each accepted client socket. */
@@ -90,12 +112,8 @@ typedef struct mb_tcp_server_config {
     /** Accepted unit ID.  Use MB_TCP_SERVER_UNIT_ID_ANY to accept all unit IDs. */
     uint8_t  unit_id;
 
-    /**
-     * Maximum number of simultaneously connected clients.
-     * 0 → use MB_TCP_MAX_CLIENTS (compile-time upper bound).
-     * Values above MB_TCP_MAX_CLIENTS are clamped to MB_TCP_MAX_CLIENTS.
-     */
-    uint8_t  max_clients;
+    /** Maximum simultaneously connected clients; 0 → MB_TCP_DEFAULT_MAX_CLIENTS. */
+    uint16_t max_clients;
 
     /**
      * Per-client socket receive timeout in milliseconds.
@@ -104,11 +122,22 @@ typedef struct mb_tcp_server_config {
      */
     uint32_t recv_timeout_ms;
 
-    /** Handler for FC03 (holding) and FC04 (input) reads.  NULL → exception reply. */
+    /** TCP keepalive on accepted sockets; see mb_tcp_config_t for defaults / DISABLED. */
+    uint32_t keepalive_idle_sec;
+    uint32_t keepalive_interval_sec;
+    uint32_t keepalive_count;
+    /** Listener idle wake-up period for dead-client checks; 0 → default. */
+    uint32_t idle_poll_ms;
+
+    /** Handler for FC03 (holding) and FC04 (input) reads.  NULL → ILLEGAL_FUNCTION. */
     mb_srv_read_fn  on_read;
-    /** Handler for FC06 (single) and FC16 (multiple) writes.  NULL → exception reply. */
+    /** Handler for FC06 (single) and FC16 (multiple) writes.  NULL → ILLEGAL_FUNCTION. */
     mb_srv_write_fn on_write;
-    void           *userdata;           /**< Context passed to on_read/on_write; can be NULL. */
+    /** Handler for FC01 (coils) and FC02 (discrete inputs) reads.  NULL → ILLEGAL_FUNCTION. */
+    mb_srv_read_bits_fn on_read_bits;
+    /** Handler for FC05 (single) and FC15 (multiple) coil writes.  NULL → ILLEGAL_FUNCTION. */
+    mb_srv_write_bits_fn on_write_bits;
+    void           *userdata;           /**< Context passed to all handlers; can be NULL. */
 
     mb_tcp_logv_fn  logv;               /**< Optional log sink; NULL → silent mode. */
     void           *log_userdata;       /**< Context passed to logv; can be NULL.    */
@@ -135,9 +164,9 @@ typedef struct mb_tcp_server_ctx {
  *
  * Optional fields that are pre-filled:
  *   recv_timeout_ms = MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS
- *   max_clients     = 0  (→ MB_TCP_MAX_CLIENTS at runtime)
- *   on_read         = NULL  (→ Server Device Failure exception on FC03/FC04)
- *   on_write        = NULL  (→ Server Device Failure exception on FC06/FC16)
+ *   max_clients     = 0  (→ MB_TCP_DEFAULT_MAX_CLIENTS at runtime)
+ *   keepalive_*, idle_poll_ms = 0  (→ transport defaults)
+ *   on_read / on_write / on_read_bits / on_write_bits = NULL  (→ ILLEGAL_FUNCTION)
  *   userdata        = NULL
  *   logv            = NULL  (silent mode)
  *   log_userdata    = NULL
@@ -160,15 +189,17 @@ void mb_tcp_server_config_init(mb_tcp_server_config_t *cfg);
 /**
  * Start the Modbus TCP server: bind port, launch listener thread.
  *
- * @param ctx  Zero-initialized context; must remain valid until mb_tcp_server_stop().
+ * @param ctx  Zero-initialized (or previously stopped) context; must remain
+ *             valid until mb_tcp_server_stop().
  * @param cfg  Configuration; pointer fields are copied by reference.
- * @return 0 on success, -1 on error.
+ * @return 0 on success, -1 on error (including ctx already started).
  */
 int mb_tcp_server_start(mb_tcp_server_ctx_t *ctx, const mb_tcp_server_config_t *cfg);
 
 /**
  * Stop the server, close all client connections, and join the listener thread.
- * Blocking call.
+ * Blocking call.  Idempotent: safe on a zero-initialized context, after a
+ * failed start, or when called twice.
  */
 void mb_tcp_server_stop(mb_tcp_server_ctx_t *ctx);
 

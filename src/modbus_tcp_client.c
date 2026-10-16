@@ -6,17 +6,20 @@
  * holds the context mutex for the full request–response cycle, ensuring only
  * one transaction is in flight at a time.
  *
- * Request building is done locally using only constants from modbus_defines.h;
- * this avoids coupling the client to the mb_tcp_ctx_t TID mechanism.
+ * PDUs are built and validated by modbus_pdu; this file only adds / checks
+ * the MBAP header.
  */
 
 #define _GNU_SOURCE
 
 #include <errno.h>
+#include <poll.h>
 #include <stdarg.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 
+#include "modbus_pdu.h"
 #include "modbus_tcp_client.h"
 
 /* ── Default tunables ──────────────────────────────────────────────────── */
@@ -35,13 +38,7 @@
  *   4    MBAP Length     (high byte)
  *   5    MBAP Length     (low  byte)
  *   6    Unit ID
- *   7    Function Code
- *   8    Start Address   (high byte)
- *   9    Start Address   (low  byte)
- *  10    Quantity        (high byte) / FC06 value high
- *  11    Quantity        (low  byte) / FC06 value low
- *  12    Byte Count      (FC16 request only)
- *  13+   Register Data   (FC16 request only)
+ *   7+   PDU (function code + data)
  * ──────────────────────────────────────────────────────────────────────── */
 #define ADU_OFFSET_TID_HIGH         0u
 #define ADU_OFFSET_TID_LOW          1u
@@ -50,27 +47,12 @@
 #define ADU_OFFSET_LEN_HIGH         4u
 #define ADU_OFFSET_LEN_LOW          5u
 #define ADU_OFFSET_UNIT_ID          6u
-#define ADU_OFFSET_FC               7u
-#define ADU_OFFSET_ADDR_HIGH        8u
-#define ADU_OFFSET_ADDR_LOW         9u
-#define ADU_OFFSET_QTY_HIGH        10u
-#define ADU_OFFSET_QTY_LOW         11u
-#define ADU_OFFSET_FC16_BYTE_COUNT 12u
-#define ADU_OFFSET_FC16_DATA_START 13u
+#define ADU_OFFSET_PDU              7u
 
-/* FC16 / FC06 success response layout (fixed 12 bytes):
- *   MBAP(6) + unit_id(1) + FC(1) + start_addr(2) + qty_or_value(2) */
-#define FC16_RESPONSE_LEN          12u
-
-/* Minimum ADU length for any valid response, including Modbus exception:
- *   MBAP(6) + unit_id(1) + FC|0x80(1) + exception_code(1) = 9 bytes */
-#define MIN_RESPONSE_LEN            9u
-
-/* FC03 response layout:
- *   MBAP(6) + unit_id(1) + FC(1) + byte_count(1) + data(qty*2)
- *   → minimum with qty=1:  6 + 1 + 1 + 1 + 2 = 11 bytes */
-#define FC03_RESPONSE_HEADER_LEN    9u   /* bytes before the data payload  */
-#define FC03_RESPONSE_BYTE_COUNT_OFFSET  8u
+/* recv_response(): complete frame received but Protocol ID is not Modbus (0). */
+#define RECV_PROTOCOL_ID_ERROR    (-3)
+/* recv_response(): timed out mid-frame; the byte stream is no longer aligned. */
+#define RECV_PARTIAL_TIMEOUT      (-4)
 
 /* ── Logging helper ────────────────────────────────────────────────────── */
 
@@ -100,22 +82,31 @@ static int recv_exact(int fd, uint8_t *buf, size_t len)
     size_t received = 0;
     while (received < len) {
         ssize_t n = recv(fd, buf + received, len - received, 0);
-        if (n <= 0) {
+        if (n == 0) {
+            return -1;      /* peer closed connection */
+        }
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) {
                 return -2;  /* timeout */
             }
-            return -1;      /* disconnect or error */
+            return -1;
         }
         received += (size_t)n;
     }
     return 0;
 }
 
-/* Map recv_exact return codes to MB_TCP_CLIENT_ERR_* codes. */
+/* Map recv_response return codes to MB_TCP_CLIENT_ERR_* codes. */
 static int recv_err_to_client_err(int recv_rc)
 {
-    if (recv_rc == -2) {
+    if (recv_rc == -2 || recv_rc == RECV_PARTIAL_TIMEOUT) {
         return MB_TCP_CLIENT_ERR_TIMEOUT;
+    }
+    if (recv_rc == RECV_PROTOCOL_ID_ERROR) {
+        return MB_TCP_CLIENT_ERR_FRAME;
     }
     return MB_TCP_CLIENT_ERR_TRANSPORT;
 }
@@ -133,102 +124,66 @@ static uint16_t next_tid(mb_tcp_client_ctx_t *ctx)
     return ctx->tid;
 }
 
-/* ── Request builders ──────────────────────────────────────────────────── */
-
-/**
- * Write a FC03 (Read Holding Registers) request into buf.
- * Requires buf_cap >= MODBUS_TCP_MIN_READ_REQ_LENGTH.
- */
-static void build_fc03_request(uint16_t tid, uint8_t unit_id,
-                                uint16_t addr, uint16_t qty,
-                                uint8_t *buf)
-{
-    buf[ADU_OFFSET_TID_HIGH]  = (uint8_t)(tid >> 8);
-    buf[ADU_OFFSET_TID_LOW]   = (uint8_t)(tid & 0xFFu);
-    buf[ADU_OFFSET_PROTO_HIGH] = 0x00u;
-    buf[ADU_OFFSET_PROTO_LOW]  = 0x00u;
-    buf[ADU_OFFSET_LEN_HIGH]  = 0x00u;
-    buf[ADU_OFFSET_LEN_LOW]   = MODBUS_TCP_MBAP_LEN_STANDARD_REQ;
-    buf[ADU_OFFSET_UNIT_ID]   = unit_id;
-    buf[ADU_OFFSET_FC]        = (uint8_t)MODBUS_FUNC_READ_HOLDING_REGISTERS;
-    buf[ADU_OFFSET_ADDR_HIGH] = (uint8_t)(addr >> 8);
-    buf[ADU_OFFSET_ADDR_LOW]  = (uint8_t)(addr & 0xFFu);
-    buf[ADU_OFFSET_QTY_HIGH]  = (uint8_t)(qty >> 8);
-    buf[ADU_OFFSET_QTY_LOW]   = (uint8_t)(qty & 0xFFu);
-}
-
-/**
- * Write a FC06 (Write Single Register) request into buf.
- * Requires buf_cap >= MODBUS_TCP_MIN_READ_REQ_LENGTH.
- */
-static void build_fc06_request(uint16_t tid, uint8_t unit_id,
-                                uint16_t addr, uint16_t value,
-                                uint8_t *buf)
-{
-    buf[ADU_OFFSET_TID_HIGH]  = (uint8_t)(tid >> 8);
-    buf[ADU_OFFSET_TID_LOW]   = (uint8_t)(tid & 0xFFu);
-    buf[ADU_OFFSET_PROTO_HIGH] = 0x00u;
-    buf[ADU_OFFSET_PROTO_LOW]  = 0x00u;
-    buf[ADU_OFFSET_LEN_HIGH]  = 0x00u;
-    buf[ADU_OFFSET_LEN_LOW]   = MODBUS_TCP_MBAP_LEN_STANDARD_REQ;
-    buf[ADU_OFFSET_UNIT_ID]   = unit_id;
-    buf[ADU_OFFSET_FC]        = (uint8_t)MODBUS_FUNC_WRITE_SINGLE_REGISTER;
-    buf[ADU_OFFSET_ADDR_HIGH] = (uint8_t)(addr >> 8);
-    buf[ADU_OFFSET_ADDR_LOW]  = (uint8_t)(addr & 0xFFu);
-    buf[ADU_OFFSET_QTY_HIGH]  = (uint8_t)(value >> 8);
-    buf[ADU_OFFSET_QTY_LOW]   = (uint8_t)(value & 0xFFu);
-}
-
-/**
- * Write a FC16 (Write Multiple Registers) request into buf.
- * Returns total request byte count.
- * Requires buf_cap >= (MODBUS_TCP_MBAP_HEADER_LEN + 7 + qty * 2).
- */
-static size_t build_fc16_request(uint16_t tid, uint8_t unit_id,
-                                  uint16_t addr, uint16_t qty,
-                                  const uint16_t *data, uint8_t *buf)
-{
-    uint8_t byte_count = (uint8_t)(qty * 2u);
-    /* MBAP Length = unit(1) + FC(1) + addr(2) + qty(2) + byte_count(1) + data */
-    uint16_t mbap_len  = (uint16_t)(7u + (uint16_t)byte_count);
-
-    buf[ADU_OFFSET_TID_HIGH]       = (uint8_t)(tid >> 8);
-    buf[ADU_OFFSET_TID_LOW]        = (uint8_t)(tid & 0xFFu);
-    buf[ADU_OFFSET_PROTO_HIGH]     = 0x00u;
-    buf[ADU_OFFSET_PROTO_LOW]      = 0x00u;
-    buf[ADU_OFFSET_LEN_HIGH]       = (uint8_t)(mbap_len >> 8);
-    buf[ADU_OFFSET_LEN_LOW]        = (uint8_t)(mbap_len & 0xFFu);
-    buf[ADU_OFFSET_UNIT_ID]        = unit_id;
-    buf[ADU_OFFSET_FC]             = (uint8_t)MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS;
-    buf[ADU_OFFSET_ADDR_HIGH]      = (uint8_t)(addr >> 8);
-    buf[ADU_OFFSET_ADDR_LOW]       = (uint8_t)(addr & 0xFFu);
-    buf[ADU_OFFSET_QTY_HIGH]       = (uint8_t)(qty >> 8);
-    buf[ADU_OFFSET_QTY_LOW]        = (uint8_t)(qty & 0xFFu);
-    buf[ADU_OFFSET_FC16_BYTE_COUNT] = byte_count;
-
-    for (uint16_t i = 0u; i < qty; i++) {
-        size_t offset = ADU_OFFSET_FC16_DATA_START + (size_t)(i * 2u);
-        buf[offset]     = (uint8_t)(data[i] >> 8);
-        buf[offset + 1u] = (uint8_t)(data[i] & 0xFFu);
-    }
-
-    return MODBUS_TCP_MBAP_HEADER_LEN + (size_t)mbap_len;
-}
-
 /* ── Response receiver ─────────────────────────────────────────────────── */
+
+static uint64_t monotonic_ms(void)
+{
+    struct timespec now;
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (uint64_t)now.tv_sec * 1000u + (uint64_t)now.tv_nsec / 1000000u;
+}
+
+static uint32_t effective_response_timeout_ms(const mb_tcp_client_ctx_t *ctx)
+{
+    return (ctx->cfg.response_timeout_ms != 0u)
+           ? ctx->cfg.response_timeout_ms
+           : DEFAULT_RESPONSE_TIMEOUT_MS;
+}
+
+/** @return 0 when @p fd is readable, -2 at @p deadline_ms, -1 on error. */
+static int wait_readable(int fd, uint64_t deadline_ms)
+{
+    for (;;) {
+        uint64_t now_ms = monotonic_ms();
+        if (now_ms >= deadline_ms) {
+            return -2;
+        }
+
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        int rc = poll(&pfd, 1, (int)(deadline_ms - now_ms));
+        if (rc > 0) {
+            return 0;
+        }
+        if (rc == 0) {
+            return -2;
+        }
+        if (errno != EINTR) {
+            return -1;
+        }
+    }
+}
 
 /**
  * Receive one complete ADU response from sock into buf (up to buf_cap bytes).
- * Reads MBAP header first, then the body.
+ * Waits until @p deadline_ms for the first byte, then reads MBAP header and body.
  *
  * @param[out] total_len  Set to total bytes received on success.
- * @return 0, -1 (transport error), or -2 (timeout).
+ * @return 0, -1 (transport error or malformed length), -2 (no data before the
+ *         deadline; stream still aligned), RECV_PARTIAL_TIMEOUT, or
+ *         RECV_PROTOCOL_ID_ERROR.
  */
-static int recv_response(int sock, uint8_t *buf, size_t buf_cap, size_t *total_len)
+static int recv_response(int sock, uint8_t *buf, size_t buf_cap, uint64_t deadline_ms,
+                         size_t *total_len)
 {
-    int rc = recv_exact(sock, buf, MODBUS_TCP_MBAP_HEADER_LEN);
+    int rc = wait_readable(sock, deadline_ms);
     if (rc != 0) {
         return rc;
+    }
+
+    rc = recv_exact(sock, buf, MODBUS_TCP_MBAP_HEADER_LEN);
+    if (rc != 0) {
+        return (rc == -2) ? RECV_PARTIAL_TIMEOUT : rc;
     }
 
     uint16_t mbap_remaining = ((uint16_t)buf[ADU_OFFSET_LEN_HIGH] << 8)
@@ -241,74 +196,147 @@ static int recv_response(int sock, uint8_t *buf, size_t buf_cap, size_t *total_l
 
     rc = recv_exact(sock, buf + MODBUS_TCP_MBAP_HEADER_LEN, mbap_remaining);
     if (rc != 0) {
-        return rc;
+        return (rc == -2) ? RECV_PARTIAL_TIMEOUT : rc;
     }
 
     *total_len = MODBUS_TCP_MBAP_HEADER_LEN + (size_t)mbap_remaining;
+
+    if (buf[ADU_OFFSET_PROTO_HIGH] != 0u || buf[ADU_OFFSET_PROTO_LOW] != 0u) {
+        return RECV_PROTOCOL_ID_ERROR;
+    }
     return 0;
 }
 
-/* ── Write-response validator ───────────────────────────────────────────── */
+/* ── Transaction ───────────────────────────────────────────────────────── */
 
 /**
- * Common response validation for FC06 and FC16 write operations.
+ * Send one request PDU and validate the response.
  *
- * Both write function codes share the same 12-byte response layout:
- *   MBAP(6) + unit_id(1) + FC(1) + echo_addr(2) + echo_qty_or_value(2)
+ * On MB_TCP_CLIENT_OK, @p resp holds the full response ADU; its PDU starts at
+ * ADU_OFFSET_PDU and has already passed mb_pdu_check_response().
  *
- * Checks performed:
- *  1. Minimum length (must be at least FC16_RESPONSE_LEN bytes).
- *  2. Transaction ID matches the request TID.
- *  3. No Modbus exception flag set in the response FC byte.
- *  4. Response FC byte matches the function code that was sent.
- *
- * @param ctx          Client context (used for logging only).
- * @param req          The original request buffer (req[ADU_OFFSET_FC] is read).
- * @param resp         The received response buffer.
- * @param total_len    Total bytes received.
- * @param expected_tid The TID that was sent in the request.
  * @return MB_TCP_CLIENT_OK, a positive Modbus exception code, or a negative
  *         MB_TCP_CLIENT_ERR_* code.
  */
-static int validate_write_response(mb_tcp_client_ctx_t *ctx,
-                                    const uint8_t *req, const uint8_t *resp,
-                                    size_t total_len, uint16_t expected_tid)
+static int transact(mb_tcp_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len,
+                    uint8_t *resp)
 {
-    /* A Modbus exception response (9 bytes) is shorter than a normal write
-     * response (12 bytes).  Reject anything too short to be either. */
-    if (total_len < MIN_RESPONSE_LEN) {
-        return MB_TCP_CLIENT_ERR_FRAME;
+    uint8_t req[MODBUS_TCP_MAX_ADU_LENGTH];
+    size_t total_len = 0u;
+    uint8_t fc = pdu[0];
+
+    if (!ctx->initialized) {
+        return MB_TCP_CLIENT_ERR_NOT_CONNECTED;
     }
 
-    uint16_t resp_tid = ((uint16_t)resp[ADU_OFFSET_TID_HIGH] << 8)
-                      | (uint16_t)resp[ADU_OFFSET_TID_LOW];
-    if (resp_tid != expected_tid) {
-        cli_logv(ctx, MB_TCP_LOG_WARN,
-                 "FC%02X TID mismatch: sent %u, received %u",
-                 (unsigned)req[ADU_OFFSET_FC],
-                 (unsigned)expected_tid, (unsigned)resp_tid);
+    uint16_t mbap_len = (uint16_t)(1u + pdu_len);
+    req[ADU_OFFSET_PROTO_HIGH] = 0x00u;
+    req[ADU_OFFSET_PROTO_LOW] = 0x00u;
+    req[ADU_OFFSET_LEN_HIGH] = (uint8_t)(mbap_len >> 8);
+    req[ADU_OFFSET_LEN_LOW] = (uint8_t)(mbap_len & 0xFFu);
+    memcpy(req + ADU_OFFSET_PDU, pdu, pdu_len);
+
+    pthread_mutex_lock(&ctx->lock);
+
+    if (ctx->sock < 0) {
+        pthread_mutex_unlock(&ctx->lock);
+        return MB_TCP_CLIENT_ERR_NOT_CONNECTED;
+    }
+
+    uint16_t tid = next_tid(ctx);
+    req[ADU_OFFSET_TID_HIGH] = (uint8_t)(tid >> 8);
+    req[ADU_OFFSET_TID_LOW] = (uint8_t)(tid & 0xFFu);
+    req[ADU_OFFSET_UNIT_ID] = ctx->cfg.unit_id;
+
+    if (mb_tcp_send_all(ctx->sock, req, ADU_OFFSET_PDU + pdu_len) != 0) {
+        mb_tcp_close(&ctx->sock);
+        pthread_mutex_unlock(&ctx->lock);
+        cli_logv(ctx, MB_TCP_LOG_ERROR, "FC%02X send failed, connection closed", (unsigned)fc);
+        return MB_TCP_CLIENT_ERR_TRANSPORT;
+    }
+
+    /* Late replies to earlier timed-out requests carry an older TID: skip them. */
+    uint64_t deadline_ms = monotonic_ms() + effective_response_timeout_ms(ctx);
+    int stale_seen = 0;
+    int rc;
+    for (;;) {
+        rc = recv_response(ctx->sock, resp, MODBUS_TCP_MAX_ADU_LENGTH, deadline_ms, &total_len);
+        if (rc != 0) {
+            break;
+        }
+        uint16_t resp_tid = ((uint16_t)resp[ADU_OFFSET_TID_HIGH] << 8)
+                          | (uint16_t)resp[ADU_OFFSET_TID_LOW];
+        if (resp_tid == tid) {
+            break;
+        }
+        cli_logv(ctx, MB_TCP_LOG_WARN, "FC%02X discarding response TID %u (expected %u)",
+                 (unsigned)fc, (unsigned)resp_tid, (unsigned)tid);
+        stale_seen = 1;
+    }
+
+    if (rc == -1 || rc == RECV_PARTIAL_TIMEOUT) {
+        mb_tcp_close(&ctx->sock);
+    }
+    pthread_mutex_unlock(&ctx->lock);
+
+    if (rc == -2 && stale_seen) {
         return MB_TCP_CLIENT_ERR_TID;
     }
-
-    uint8_t resp_fc = resp[ADU_OFFSET_FC];
-    if (resp_fc & (uint8_t)MODBUS_EXCEPTION_FLAG) {
-        uint8_t exception_code = resp[ADU_OFFSET_ADDR_HIGH];
-        cli_logv(ctx, MB_TCP_LOG_WARN,
-                 "FC%02X exception code %u",
-                 (unsigned)req[ADU_OFFSET_FC], (unsigned)exception_code);
-        return (int)exception_code;
+    if (rc != 0) {
+        cli_logv(ctx, MB_TCP_LOG_ERROR, "FC%02X recv failed (rc=%d)%s", (unsigned)fc, rc,
+                 (rc == -1 || rc == RECV_PARTIAL_TIMEOUT) ? ", connection closed" : "");
+        return recv_err_to_client_err(rc);
     }
-
-    /* Normal success response: must be at least 12 bytes and echo the FC. */
-    if (total_len < FC16_RESPONSE_LEN) {
+    if (total_len <= ADU_OFFSET_PDU) {
         return MB_TCP_CLIENT_ERR_FRAME;
     }
 
-    if (resp_fc != req[ADU_OFFSET_FC]) {
+    rc = mb_pdu_check_response(pdu, resp + ADU_OFFSET_PDU, total_len - ADU_OFFSET_PDU);
+    if (rc == MB_PDU_ERR_FRAME) {
+        cli_logv(ctx, MB_TCP_LOG_WARN, "FC%02X malformed or mismatched response",
+                 (unsigned)fc);
         return MB_TCP_CLIENT_ERR_FRAME;
     }
+    if (rc > 0) {
+        cli_logv(ctx, MB_TCP_LOG_WARN, "FC%02X exception code %d", (unsigned)fc, rc);
+    }
+    return rc;
+}
 
-    return MB_TCP_CLIENT_OK;
+static int read_registers(mb_tcp_client_ctx_t *ctx, uint8_t fc,
+                          uint16_t addr, uint16_t qty, uint16_t *out)
+{
+    uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
+    uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
+
+    if (!ctx || !out || qty == 0u || qty > MODBUS_MAX_READ_REGISTERS) {
+        return MB_TCP_CLIENT_ERR_ARG;
+    }
+
+    size_t pdu_len = mb_pdu_build_read(pdu, fc, addr, qty);
+    int rc = transact(ctx, pdu, pdu_len, resp);
+    if (rc == MB_TCP_CLIENT_OK) {
+        mb_pdu_get_registers(resp + ADU_OFFSET_PDU, qty, out);
+    }
+    return rc;
+}
+
+static int read_bits(mb_tcp_client_ctx_t *ctx, uint8_t fc,
+                     uint16_t addr, uint16_t qty, uint8_t *out)
+{
+    uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
+    uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
+
+    if (!ctx || !out || qty == 0u || qty > MODBUS_MAX_READ_BITS) {
+        return MB_TCP_CLIENT_ERR_ARG;
+    }
+
+    size_t pdu_len = mb_pdu_build_read(pdu, fc, addr, qty);
+    int rc = transact(ctx, pdu, pdu_len, resp);
+    if (rc == MB_TCP_CLIENT_OK) {
+        mb_pdu_get_bits(resp + ADU_OFFSET_PDU, qty, out);
+    }
+    return rc;
 }
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
@@ -317,6 +345,9 @@ int mb_tcp_client_connect(mb_tcp_client_ctx_t *ctx, const mb_tcp_client_config_t
 {
     if (!ctx || !cfg || !cfg->remote_host || cfg->remote_host[0] == '\0' ||
         cfg->port == 0u) {
+        return -1;
+    }
+    if (ctx->initialized) {
         return -1;
     }
 
@@ -352,6 +383,7 @@ int mb_tcp_client_connect(mb_tcp_client_ctx_t *ctx, const mb_tcp_client_config_t
     setsockopt(ctx->sock, SOL_SOCKET, SO_RCVTIMEO,
                &response_tv, sizeof(response_tv));
 
+    ctx->initialized = 1;
     cli_logv(ctx, MB_TCP_LOG_DEBUG,
              "connected to %s:%u", cfg->remote_host, (unsigned)cfg->port);
     return 0;
@@ -359,160 +391,114 @@ int mb_tcp_client_connect(mb_tcp_client_ctx_t *ctx, const mb_tcp_client_config_t
 
 void mb_tcp_client_disconnect(mb_tcp_client_ctx_t *ctx)
 {
-    if (!ctx) {
+    if (!ctx || !ctx->initialized) {
         return;
     }
+
+    pthread_mutex_lock(&ctx->lock);
     mb_tcp_close(&ctx->sock);
+    ctx->initialized = 0;
+    pthread_mutex_unlock(&ctx->lock);
     pthread_mutex_destroy(&ctx->lock);
+}
+
+int mb_tcp_client_set_unit_id(mb_tcp_client_ctx_t *ctx, uint8_t unit_id)
+{
+    if (!ctx) {
+        return MB_TCP_CLIENT_ERR_ARG;
+    }
+    if (!ctx->initialized) {
+        return MB_TCP_CLIENT_ERR_NOT_CONNECTED;
+    }
+
+    pthread_mutex_lock(&ctx->lock);
+    ctx->cfg.unit_id = unit_id;
+    pthread_mutex_unlock(&ctx->lock);
+    return MB_TCP_CLIENT_OK;
 }
 
 int mb_tcp_client_read_holding_registers(mb_tcp_client_ctx_t *ctx,
                                           uint16_t addr, uint16_t qty,
                                           uint16_t *out)
 {
-    if (!ctx || !out || qty == 0u || qty > MODBUS_MAX_READ_REGISTERS) {
-        return MB_TCP_CLIENT_ERR_ARG;
-    }
-    if (ctx->sock < 0) {
-        return MB_TCP_CLIENT_ERR_NOT_CONNECTED;
-    }
+    return read_registers(ctx, MODBUS_FUNC_READ_HOLDING_REGISTERS, addr, qty, out);
+}
 
-    uint8_t req[MODBUS_TCP_MIN_READ_REQ_LENGTH];
-    uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
+int mb_tcp_client_read_input_registers(mb_tcp_client_ctx_t *ctx,
+                                       uint16_t addr, uint16_t qty,
+                                       uint16_t *out)
+{
+    return read_registers(ctx, MODBUS_FUNC_READ_INPUT_REGISTERS, addr, qty, out);
+}
 
-    pthread_mutex_lock(&ctx->lock);
+int mb_tcp_client_read_coils(mb_tcp_client_ctx_t *ctx,
+                             uint16_t addr, uint16_t qty, uint8_t *out)
+{
+    return read_bits(ctx, MODBUS_FUNC_READ_COILS, addr, qty, out);
+}
 
-    uint16_t tid = next_tid(ctx);
-    build_fc03_request(tid, ctx->cfg.unit_id, addr, qty, req);
-
-    if (send(ctx->sock, req, sizeof(req), 0) != (ssize_t)sizeof(req)) {
-        cli_logv(ctx, MB_TCP_LOG_ERROR, "FC03 send failed");
-        pthread_mutex_unlock(&ctx->lock);
-        return MB_TCP_CLIENT_ERR_TRANSPORT;
-    }
-
-    size_t total_len = 0u;
-    int rc = recv_response(ctx->sock, resp, sizeof(resp), &total_len);
-    if (rc != 0) {
-        cli_logv(ctx, MB_TCP_LOG_ERROR, "FC03 recv failed (rc=%d)", rc);
-        pthread_mutex_unlock(&ctx->lock);
-        return recv_err_to_client_err(rc);
-    }
-
-    pthread_mutex_unlock(&ctx->lock);
-
-    /* Validate TID. */
-    uint16_t resp_tid = ((uint16_t)resp[ADU_OFFSET_TID_HIGH] << 8)
-                      | (uint16_t)resp[ADU_OFFSET_TID_LOW];
-    if (resp_tid != tid) {
-        cli_logv(ctx, MB_TCP_LOG_WARN,
-                 "FC03 TID mismatch: sent %u, received %u",
-                 (unsigned)tid, (unsigned)resp_tid);
-        return MB_TCP_CLIENT_ERR_TID;
-    }
-
-    /* Check for exception response. */
-    uint8_t resp_fc = resp[ADU_OFFSET_FC];
-    if (resp_fc & (uint8_t)MODBUS_EXCEPTION_FLAG) {
-        uint8_t exception_code = resp[ADU_OFFSET_ADDR_HIGH]; /* exception byte */
-        cli_logv(ctx, MB_TCP_LOG_WARN,
-                 "FC03 exception code %u", (unsigned)exception_code);
-        return (int)exception_code;  /* positive Modbus exception code */
-    }
-
-    if (resp_fc != (uint8_t)MODBUS_FUNC_READ_HOLDING_REGISTERS) {
-        return MB_TCP_CLIENT_ERR_FRAME;
-    }
-
-    /* Validate byte count in response. */
-    if (total_len < FC03_RESPONSE_HEADER_LEN) {
-        return MB_TCP_CLIENT_ERR_FRAME;
-    }
-    uint8_t byte_count = resp[FC03_RESPONSE_BYTE_COUNT_OFFSET];
-    if (byte_count != (uint8_t)(qty * 2u)) {
-        return MB_TCP_CLIENT_ERR_FRAME;
-    }
-
-    /* Extract register values (big-endian → host byte order). */
-    for (uint16_t i = 0u; i < qty; i++) {
-        size_t offset = FC03_RESPONSE_HEADER_LEN + (size_t)(i * 2u);
-        out[i] = ((uint16_t)resp[offset] << 8) | (uint16_t)resp[offset + 1u];
-    }
-
-    return MB_TCP_CLIENT_OK;
+int mb_tcp_client_read_discrete_inputs(mb_tcp_client_ctx_t *ctx,
+                                       uint16_t addr, uint16_t qty, uint8_t *out)
+{
+    return read_bits(ctx, MODBUS_FUNC_READ_DISCRETE_INPUTS, addr, qty, out);
 }
 
 int mb_tcp_client_write_single_register(mb_tcp_client_ctx_t *ctx,
                                          uint16_t addr, uint16_t value)
 {
+    uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
+    uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
+
     if (!ctx) {
         return MB_TCP_CLIENT_ERR_ARG;
     }
-    if (ctx->sock < 0) {
-        return MB_TCP_CLIENT_ERR_NOT_CONNECTED;
-    }
 
-    uint8_t req[MODBUS_TCP_MIN_READ_REQ_LENGTH];
+    size_t pdu_len = mb_pdu_build_write_single(pdu, MODBUS_FUNC_WRITE_SINGLE_REGISTER,
+                                               addr, value);
+    return transact(ctx, pdu, pdu_len, resp);
+}
+
+int mb_tcp_client_write_single_coil(mb_tcp_client_ctx_t *ctx,
+                                    uint16_t addr, uint8_t value)
+{
+    uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
 
-    pthread_mutex_lock(&ctx->lock);
-
-    uint16_t tid = next_tid(ctx);
-    build_fc06_request(tid, ctx->cfg.unit_id, addr, value, req);
-
-    if (send(ctx->sock, req, sizeof(req), 0) != (ssize_t)sizeof(req)) {
-        cli_logv(ctx, MB_TCP_LOG_ERROR, "FC06 send failed");
-        pthread_mutex_unlock(&ctx->lock);
-        return MB_TCP_CLIENT_ERR_TRANSPORT;
+    if (!ctx) {
+        return MB_TCP_CLIENT_ERR_ARG;
     }
 
-    size_t total_len = 0u;
-    int rc = recv_response(ctx->sock, resp, sizeof(resp), &total_len);
-    if (rc != 0) {
-        cli_logv(ctx, MB_TCP_LOG_ERROR, "FC06 recv failed (rc=%d)", rc);
-        pthread_mutex_unlock(&ctx->lock);
-        return recv_err_to_client_err(rc);
-    }
-
-    pthread_mutex_unlock(&ctx->lock);
-
-    return validate_write_response(ctx, req, resp, total_len, tid);
+    size_t pdu_len = mb_pdu_build_write_single(pdu, MODBUS_FUNC_WRITE_SINGLE_COIL, addr,
+                                               value ? MODBUS_COIL_ON : MODBUS_COIL_OFF);
+    return transact(ctx, pdu, pdu_len, resp);
 }
 
 int mb_tcp_client_write_multiple_registers(mb_tcp_client_ctx_t *ctx,
                                             uint16_t addr, uint16_t qty,
                                             const uint16_t *data)
 {
+    uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
+    uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
+
     if (!ctx || !data || qty == 0u || qty > MODBUS_MAX_WRITE_REGISTERS) {
         return MB_TCP_CLIENT_ERR_ARG;
     }
-    if (ctx->sock < 0) {
-        return MB_TCP_CLIENT_ERR_NOT_CONNECTED;
-    }
 
-    uint8_t req[MODBUS_TCP_MAX_ADU_LENGTH];
+    size_t pdu_len = mb_pdu_build_write_registers(pdu, addr, qty, data);
+    return transact(ctx, pdu, pdu_len, resp);
+}
+
+int mb_tcp_client_write_multiple_coils(mb_tcp_client_ctx_t *ctx,
+                                       uint16_t addr, uint16_t qty,
+                                       const uint8_t *values)
+{
+    uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
 
-    pthread_mutex_lock(&ctx->lock);
-
-    uint16_t tid = next_tid(ctx);
-    size_t req_len = build_fc16_request(tid, ctx->cfg.unit_id, addr, qty, data, req);
-
-    if (send(ctx->sock, req, req_len, 0) != (ssize_t)req_len) {
-        cli_logv(ctx, MB_TCP_LOG_ERROR, "FC16 send failed");
-        pthread_mutex_unlock(&ctx->lock);
-        return MB_TCP_CLIENT_ERR_TRANSPORT;
+    if (!ctx || !values || qty == 0u || qty > MODBUS_MAX_WRITE_BITS) {
+        return MB_TCP_CLIENT_ERR_ARG;
     }
 
-    size_t total_len = 0u;
-    int rc = recv_response(ctx->sock, resp, sizeof(resp), &total_len);
-    if (rc != 0) {
-        cli_logv(ctx, MB_TCP_LOG_ERROR, "FC16 recv failed (rc=%d)", rc);
-        pthread_mutex_unlock(&ctx->lock);
-        return recv_err_to_client_err(rc);
-    }
-
-    pthread_mutex_unlock(&ctx->lock);
-
-    return validate_write_response(ctx, req, resp, total_len, tid);
+    size_t pdu_len = mb_pdu_build_write_coils(pdu, addr, qty, values);
+    return transact(ctx, pdu, pdu_len, resp);
 }

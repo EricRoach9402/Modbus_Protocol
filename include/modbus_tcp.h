@@ -34,6 +34,14 @@ typedef void (*mb_tcp_logv_fn)(void *userdata, mb_tcp_log_level_t level, const c
 /** Optional: notified when TCP link is up (connected != 0) or lost. @p fd is the socket or -1. */
 typedef void (*mb_tcp_link_fn)(void *userdata, int fd, int connected);
 
+/** keepalive_idle_sec sentinel: do not enable SO_KEEPALIVE. */
+#define MB_TCP_KEEPALIVE_DISABLED UINT32_MAX
+
+#define MB_TCP_DEFAULT_KEEPALIVE_IDLE_SEC 5u
+#define MB_TCP_DEFAULT_KEEPALIVE_INTERVAL_SEC 5u
+#define MB_TCP_DEFAULT_KEEPALIVE_COUNT 1u
+#define MB_TCP_DEFAULT_IDLE_POLL_MS 5000u
+
 typedef enum mb_tcp_mode {
     /** Listen on @p port (bind all interfaces); accept Modbus TCP masters. */
     MB_TCP_MODE_LISTEN_SERVER = 0,
@@ -56,10 +64,23 @@ typedef struct mb_tcp_config {
      */
     uint32_t recv_timeout_ms;
     /**
-     * Runtime cap on simultaneously connected clients (server mode only).
-     * 0 → MB_TCP_MAX_CLIENTS. Values above MB_TCP_MAX_CLIENTS are clamped.
+     * Simultaneously connected clients (server mode only).
+     * 0 → MB_TCP_DEFAULT_MAX_CLIENTS.  Slots are allocated at start.
+     * Sockets whose fd number is >= FD_SETSIZE are rejected (select() limit).
      */
-    uint8_t  max_clients;
+    uint16_t max_clients;
+    /**
+     * TCP keepalive on accepted sockets (server mode only).
+     * keepalive_idle_sec: 0 → MB_TCP_DEFAULT_KEEPALIVE_IDLE_SEC;
+     *                     MB_TCP_KEEPALIVE_DISABLED → SO_KEEPALIVE off.
+     * keepalive_interval_sec: 0 → MB_TCP_DEFAULT_KEEPALIVE_INTERVAL_SEC.
+     * keepalive_count: 0 → MB_TCP_DEFAULT_KEEPALIVE_COUNT.
+     */
+    uint32_t keepalive_idle_sec;
+    uint32_t keepalive_interval_sec;
+    uint32_t keepalive_count;
+    /** Server idle select() period for dead-client checks; 0 → MB_TCP_DEFAULT_IDLE_POLL_MS. */
+    uint32_t idle_poll_ms;
     void *userdata;
 
     mb_tcp_logv_fn logv;
@@ -83,12 +104,26 @@ typedef struct mb_tcp_ctx {
     mb_tcp_config_t cfg;
     int listen_sock;
     int stream_sock;
-    int client_fds[MB_TCP_MAX_CLIENTS];
+    int *client_fds;                    /**< Internal: max_clients slots, -1 = free. */
+    uint16_t client_cap;                /**< Internal: number of client_fds slots. */
+    int initialized;                    /**< Internal: nonzero between start and stop. */
 } mb_tcp_ctx_t;
 
-/** Zero ctx before first use; copies @p cfg (pointer fields must remain valid until mb_tcp_stop). */
+/**
+ * Zero ctx before first use; copies @p cfg (pointer fields must remain valid until mb_tcp_stop).
+ * @return 0 on success, -1 on error (including ctx already started).
+ */
 int mb_tcp_start(mb_tcp_ctx_t *ctx, const mb_tcp_config_t *cfg);
+
+/** Idempotent: safe on a zero-initialized ctx, after a failed start, or when called twice. */
 void mb_tcp_stop(mb_tcp_ctx_t *ctx);
+
+/**
+ * Send all @p len bytes, retrying on short writes and EINTR.
+ * Never raises SIGPIPE (uses MSG_NOSIGNAL).
+ * @return 0 on success, -1 on error.
+ */
+int mb_tcp_send_all(int fd, const uint8_t *buf, size_t len);
 
 /**
  * Build a Modbus TCP ADU for a 5-byte PDU after the unit id:
@@ -116,6 +151,7 @@ int mb_tcp_build_fc06_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
  * Build a FC16 (Write Multiple Registers) ADU into @p req.
  * Always uses FC16, even when @p num_registers is 1.
  *
+ * @param num_registers 1 – MODBUS_MAX_WRITE_REGISTERS.
  * @param req_cap must be >= MODBUS_TCP_MBAP_HEADER_LEN + 7 + num_registers * 2.
  * @return total ADU byte length on success, -1 on error.
  */

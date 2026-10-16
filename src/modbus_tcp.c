@@ -12,6 +12,7 @@
 #include <netinet/tcp.h>
 #include <pthread.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -38,17 +39,35 @@ static void mb_tcp_link_call(mb_tcp_ctx_t *ctx, int fd, int connected)
     }
 }
 
-/**
- * Returns the effective maximum number of simultaneously connected clients.
- * Clamps to MB_TCP_MAX_CLIENTS and falls back to it when cfg.max_clients is 0.
- */
-static int effective_max_clients(const mb_tcp_ctx_t *ctx)
+static uint32_t value_or_default(uint32_t value, uint32_t default_value)
 {
-    if (ctx->cfg.max_clients == 0u ||
-        ctx->cfg.max_clients > (uint8_t)MB_TCP_MAX_CLIENTS) {
-        return MB_TCP_MAX_CLIENTS;
+    return (value != 0u) ? value : default_value;
+}
+
+/** Apply keepalive and receive-timeout options to an accepted client socket. */
+static void configure_client_socket(mb_tcp_ctx_t *ctx, int fd)
+{
+    if (ctx->cfg.keepalive_idle_sec != MB_TCP_KEEPALIVE_DISABLED) {
+        int keep_alive = 1;
+        int keep_idle = (int)value_or_default(ctx->cfg.keepalive_idle_sec,
+                                              MB_TCP_DEFAULT_KEEPALIVE_IDLE_SEC);
+        int keep_intvl = (int)value_or_default(ctx->cfg.keepalive_interval_sec,
+                                               MB_TCP_DEFAULT_KEEPALIVE_INTERVAL_SEC);
+        int keep_cnt = (int)value_or_default(ctx->cfg.keepalive_count,
+                                             MB_TCP_DEFAULT_KEEPALIVE_COUNT);
+        setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive));
+        setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keep_idle, sizeof(keep_idle));
+        setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keep_intvl, sizeof(keep_intvl));
+        setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &keep_cnt, sizeof(keep_cnt));
     }
-    return (int)ctx->cfg.max_clients;
+
+    if (ctx->cfg.recv_timeout_ms > 0u) {
+        struct timeval recv_tv = {
+            .tv_sec = (time_t)(ctx->cfg.recv_timeout_ms / 1000u),
+            .tv_usec = (suseconds_t)((ctx->cfg.recv_timeout_ms % 1000u) * 1000u),
+        };
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &recv_tv, sizeof(recv_tv));
+    }
 }
 
 static void *mb_tcp_server_thread(void *arg);
@@ -83,7 +102,7 @@ static int mb_tcp_listen_init(mb_tcp_ctx_t *ctx)
         return -1;
     }
 
-    if (listen(ctx->listen_sock, MB_TCP_MAX_CLIENTS) < 0) {
+    if (listen(ctx->listen_sock, (int)ctx->client_cap) < 0) {
         mb_tcp_logv(ctx, MB_TCP_LOG_ERROR, "listen: %s", strerror(errno));
         close(ctx->listen_sock);
         ctx->listen_sock = -1;
@@ -103,6 +122,9 @@ int mb_tcp_start(mb_tcp_ctx_t *ctx, const mb_tcp_config_t *cfg)
         (cfg->remote_host == NULL || cfg->remote_host[0] == '\0')) {
         return -1;
     }
+    if (ctx->initialized) {
+        return -1;
+    }
 
     memset(ctx, 0, sizeof(*ctx));
     ctx->listen_sock = -1;
@@ -117,7 +139,21 @@ int mb_tcp_start(mb_tcp_ctx_t *ctx, const mb_tcp_config_t *cfg)
     ctx->keep_running = 1;
     ctx->tid = 0;
 
+    if (ctx->cfg.mode == MB_TCP_MODE_LISTEN_SERVER) {
+        ctx->client_cap = (uint16_t)value_or_default(ctx->cfg.max_clients,
+                                                     MB_TCP_DEFAULT_MAX_CLIENTS);
+        ctx->client_fds = malloc(sizeof(int) * ctx->client_cap);
+        if (!ctx->client_fds) {
+            return -1;
+        }
+        for (uint16_t i = 0u; i < ctx->client_cap; i++) {
+            ctx->client_fds[i] = -1;
+        }
+    }
+
     if (pthread_mutex_init(&ctx->lock, NULL) != 0) {
+        free(ctx->client_fds);
+        ctx->client_fds = NULL;
         return -1;
     }
 
@@ -126,13 +162,14 @@ int mb_tcp_start(mb_tcp_ctx_t *ctx, const mb_tcp_config_t *cfg)
     }
 
     if (ctx->cfg.mode == MB_TCP_MODE_LISTEN_SERVER) {
-        if (mb_tcp_listen_init(ctx) < 0) {
-            pthread_mutex_destroy(&ctx->lock);
-            return -1;
-        }
-        if (pthread_create(&ctx->thread, NULL, mb_tcp_server_thread, ctx) != 0) {
-            close(ctx->listen_sock);
-            ctx->listen_sock = -1;
+        if (mb_tcp_listen_init(ctx) < 0 ||
+            pthread_create(&ctx->thread, NULL, mb_tcp_server_thread, ctx) != 0) {
+            if (ctx->listen_sock >= 0) {
+                close(ctx->listen_sock);
+                ctx->listen_sock = -1;
+            }
+            free(ctx->client_fds);
+            ctx->client_fds = NULL;
             pthread_mutex_destroy(&ctx->lock);
             return -1;
         }
@@ -143,12 +180,13 @@ int mb_tcp_start(mb_tcp_ctx_t *ctx, const mb_tcp_config_t *cfg)
         }
     }
 
+    ctx->initialized = 1;
     return 0;
 }
 
 void mb_tcp_stop(mb_tcp_ctx_t *ctx)
 {
-    if (!ctx) {
+    if (!ctx || !ctx->initialized) {
         return;
     }
 
@@ -157,8 +195,8 @@ void mb_tcp_stop(mb_tcp_ctx_t *ctx)
     if (ctx->listen_sock >= 0) {
         shutdown(ctx->listen_sock, SHUT_RDWR);
     }
-    for (int i = 0; i < MB_TCP_MAX_CLIENTS; i++) {
-        if (ctx->client_fds[i] > 0) {
+    for (uint16_t i = 0u; i < ctx->client_cap; i++) {
+        if (ctx->client_fds[i] >= 0) {
             shutdown(ctx->client_fds[i], SHUT_RDWR);
         }
     }
@@ -172,18 +210,41 @@ void mb_tcp_stop(mb_tcp_ctx_t *ctx)
         close(ctx->listen_sock);
         ctx->listen_sock = -1;
     }
-    for (int i = 0; i < MB_TCP_MAX_CLIENTS; i++) {
-        if (ctx->client_fds[i] > 0) {
+    for (uint16_t i = 0u; i < ctx->client_cap; i++) {
+        if (ctx->client_fds[i] >= 0) {
             close(ctx->client_fds[i]);
-            ctx->client_fds[i] = 0;
         }
     }
+    free(ctx->client_fds);
+    ctx->client_fds = NULL;
+    ctx->client_cap = 0u;
     if (ctx->stream_sock >= 0) {
         close(ctx->stream_sock);
         ctx->stream_sock = -1;
     }
 
     pthread_mutex_destroy(&ctx->lock);
+    ctx->initialized = 0;
+}
+
+int mb_tcp_send_all(int fd, const uint8_t *buf, size_t len)
+{
+    size_t sent = 0u;
+
+    while (sent < len) {
+        ssize_t n = send(fd, buf + sent, len - sent, MSG_NOSIGNAL);
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+        if (n == 0) {
+            return -1;
+        }
+        sent += (size_t)n;
+    }
+    return 0;
 }
 
 static void *mb_tcp_server_thread(void *arg)
@@ -195,14 +256,14 @@ static void *mb_tcp_server_thread(void *arg)
     int connection_state = 0;
     socklen_t addrlen = sizeof(client_addr);
 
-    /* Resolve once: all slot loops in this thread use the same runtime cap. */
-    const int max_clients = effective_max_clients(ctx);
+    const int max_clients = (int)ctx->client_cap;
+    const uint32_t poll_ms = value_or_default(ctx->cfg.idle_poll_ms, MB_TCP_DEFAULT_IDLE_POLL_MS);
 
     while (ctx->keep_running) {
         struct timeval timeout;
 
-        timeout.tv_sec = 5;
-        timeout.tv_usec = 0;
+        timeout.tv_sec = (time_t)(poll_ms / 1000u);
+        timeout.tv_usec = (suseconds_t)((poll_ms % 1000u) * 1000u);
 
         FD_ZERO(&readfds);
         FD_SET(ctx->listen_sock, &readfds);
@@ -210,7 +271,7 @@ static void *mb_tcp_server_thread(void *arg)
 
         for (int i = 0; i < max_clients; i++) {
             sd = ctx->client_fds[i];
-            if (sd > 0) {
+            if (sd >= 0) {
                 FD_SET(sd, &readfds);
                 if (sd > max_sd) {
                     max_sd = sd;
@@ -227,13 +288,13 @@ static void *mb_tcp_server_thread(void *arg)
         if (activity == 0) {
             for (int i = 0; i < max_clients; i++) {
                 sd = ctx->client_fds[i];
-                if (sd > 0) {
+                if (sd >= 0) {
                     char buffer[1];
                     int check = recv(sd, buffer, sizeof(buffer), MSG_PEEK | MSG_DONTWAIT);
                     if (check == 0) {
                         mb_tcp_logv(ctx, MB_TCP_LOG_WARN, "client disconnected fd %d", sd);
                         close(sd);
-                        ctx->client_fds[i] = 0;
+                        ctx->client_fds[i] = -1;
                         connection_state = 0;
                         mb_tcp_link_call(ctx, sd, 0);
                         if (ctx->cfg.on_error) {
@@ -254,28 +315,23 @@ static void *mb_tcp_server_thread(void *arg)
                 continue;
             }
 
+            char addr_str[INET_ADDRSTRLEN] = "?";
+            inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str));
             mb_tcp_logv(ctx, MB_TCP_LOG_DEBUG, "new client fd %d from %s:%u", new_socket,
-                        inet_ntoa(client_addr.sin_addr), (unsigned)ntohs(client_addr.sin_port));
+                        addr_str, (unsigned)ntohs(client_addr.sin_port));
 
-            int keep_alive = 1;
-            int keep_idle = 5;
-            int keep_intvl = 5;
-            int keep_cnt = 1;
-            setsockopt(new_socket, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive));
-            setsockopt(new_socket, IPPROTO_TCP, TCP_KEEPIDLE, &keep_idle, sizeof(keep_idle));
-            setsockopt(new_socket, IPPROTO_TCP, TCP_KEEPINTVL, &keep_intvl, sizeof(keep_intvl));
-            setsockopt(new_socket, IPPROTO_TCP, TCP_KEEPCNT, &keep_cnt, sizeof(keep_cnt));
-
-            if (ctx->cfg.recv_timeout_ms > 0u) {
-                struct timeval recv_tv;
-                recv_tv.tv_sec  = (time_t)(ctx->cfg.recv_timeout_ms / 1000u);
-                recv_tv.tv_usec = (suseconds_t)((ctx->cfg.recv_timeout_ms % 1000u) * 1000u);
-                setsockopt(new_socket, SOL_SOCKET, SO_RCVTIMEO, &recv_tv, sizeof(recv_tv));
+            if (new_socket >= FD_SETSIZE) {
+                mb_tcp_logv(ctx, MB_TCP_LOG_WARN,
+                            "fd %d exceeds FD_SETSIZE, rejecting client", new_socket);
+                close(new_socket);
+                continue;
             }
+
+            configure_client_socket(ctx, new_socket);
 
             int placed = 0;
             for (int i = 0; i < max_clients; i++) {
-                if (ctx->client_fds[i] == 0) {
+                if (ctx->client_fds[i] < 0) {
                     ctx->client_fds[i] = new_socket;
                     placed = 1;
                     break;
@@ -296,11 +352,11 @@ static void *mb_tcp_server_thread(void *arg)
 
         for (int i = 0; i < max_clients; i++) {
             sd = ctx->client_fds[i];
-            if (sd > 0 && FD_ISSET(sd, &readfds)) {
+            if (sd >= 0 && FD_ISSET(sd, &readfds)) {
                 if (ctx->cfg.on_process) {
                     if (ctx->cfg.on_process(ctx->cfg.userdata, sd) < 0) {
                         close(sd);
-                        ctx->client_fds[i] = 0;
+                        ctx->client_fds[i] = -1;
                         connection_state = 0;
                         mb_tcp_link_call(ctx, sd, 0);
                         if (ctx->cfg.on_error) {
@@ -549,7 +605,8 @@ int mb_tcp_build_fc16_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
                                const uint16_t *values,
                                uint8_t *req, size_t req_cap)
 {
-    if (!ctx || !req || !values || num_registers == 0) {
+    if (!ctx || !req || !values || num_registers == 0 ||
+        num_registers > MODBUS_MAX_WRITE_REGISTERS) {
         return -1;
     }
 

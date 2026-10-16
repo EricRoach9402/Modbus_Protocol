@@ -61,11 +61,15 @@ OBJ_RTU_SERVER    := $(BUILD_DIR)/modbus_rtu_server.o
 SRC_RTU_CLIENT    := src/modbus_rtu_client.c
 OBJ_RTU_CLIENT    := $(BUILD_DIR)/modbus_rtu_client.o
 
-ALL_OBJS := $(OBJ_TRANSPORT) $(OBJ_SERVER) $(OBJ_CLIENT) \
+# Shared transport-independent PDU encode / decode / dispatch (internal)
+SRC_PDU := src/modbus_pdu.c
+OBJ_PDU := $(BUILD_DIR)/modbus_pdu.o
+
+ALL_OBJS := $(OBJ_PDU) $(OBJ_TRANSPORT) $(OBJ_SERVER) $(OBJ_CLIENT) \
             $(OBJ_RTU_TRANSPORT) $(OBJ_RTU_SERVER) $(OBJ_RTU_CLIENT)
 
 # ── Common headers every translation unit depends on ──────────────────────
-HDRS_COMMON := include/modbus_defines.h
+HDRS_COMMON := include/modbus_defines.h src/modbus_pdu.h
 
 # ── Test and example paths ─────────────────────────────────────────────────
 TEST_DIR := test
@@ -89,6 +93,9 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 # ── Library objects ────────────────────────────────────────────────────────
+$(OBJ_PDU): $(SRC_PDU) $(HDRS_COMMON) | $(BUILD_DIR)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(SRC_PDU) -o $(OBJ_PDU)
+
 $(OBJ_TRANSPORT): $(SRC_TRANSPORT) include/modbus_tcp.h $(HDRS_COMMON) | $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $(SRC_TRANSPORT) -o $(OBJ_TRANSPORT)
 

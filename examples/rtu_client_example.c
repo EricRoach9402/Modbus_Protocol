@@ -55,6 +55,7 @@ static const char *client_err_str(int rc)
         case MB_RTU_CLIENT_ERR_TIMEOUT: return "ERR_TIMEOUT";
         case MB_RTU_CLIENT_ERR_FRAME: return "ERR_FRAME";
         case MB_RTU_CLIENT_ERR_UNIT_ID: return "ERR_UNIT_ID";
+        case MB_RTU_CLIENT_ERR_CRC: return "ERR_CRC";
         default:
             if (rc > 0) {
                 return "MODBUS_EXCEPTION";

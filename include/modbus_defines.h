@@ -14,7 +14,11 @@
 #define MODBUS_FUNC_READ_INPUT_REGISTERS        0x04u
 #define MODBUS_FUNC_WRITE_SINGLE_COIL           0x05u
 #define MODBUS_FUNC_WRITE_SINGLE_REGISTER       0x06u
+#define MODBUS_FUNC_WRITE_MULTIPLE_COILS        0x0Fu
 #define MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS    0x10u
+
+/** Maximum PDU size (function code + data) shared by TCP and RTU. */
+#define MODBUS_MAX_PDU_LENGTH                   253u
 
 /* ── Modbus TCP framing constants ──────────────────────────────────────── */
 
@@ -65,6 +69,16 @@
 /** Maximum number of registers writable in one FC16 request. */
 #define MODBUS_MAX_WRITE_REGISTERS              123u
 
+/** Maximum number of coils / discrete inputs readable in one FC01 / FC02 request. */
+#define MODBUS_MAX_READ_BITS                    2000u
+
+/** Maximum number of coils writable in one FC15 request. */
+#define MODBUS_MAX_WRITE_BITS                   1968u
+
+/** FC05 wire values for ON / OFF. */
+#define MODBUS_COIL_ON                          0xFF00u
+#define MODBUS_COIL_OFF                         0x0000u
+
 /* ── Modbus exception handling ─────────────────────────────────────────── */
 
 /** Bit OR'd with the function code in an exception response. */
@@ -74,10 +88,20 @@
 #define MODBUS_EX_ILLEGAL_DATA_ADDRESS          0x02u
 #define MODBUS_EX_ILLEGAL_DATA_VALUE            0x03u
 #define MODBUS_EX_SERVER_DEVICE_FAILURE         0x04u
+#define MODBUS_EX_ACKNOWLEDGE                   0x05u
+#define MODBUS_EX_SERVER_DEVICE_BUSY            0x06u
+#define MODBUS_EX_MEMORY_PARITY_ERROR           0x08u
+#define MODBUS_EX_GATEWAY_PATH_UNAVAILABLE      0x0Au
+#define MODBUS_EX_GATEWAY_TARGET_FAILED         0x0Bu
 
 /* ── Library tunables ──────────────────────────────────────────────────── */
 
 #define MB_TCP_DEFAULT_BUFFER_SIZE              2048
-#define MB_TCP_MAX_CLIENTS                      10
+
+/** Default TCP server client limit when max_clients is 0 (runtime-configurable). */
+#define MB_TCP_DEFAULT_MAX_CLIENTS              10u
+
+/** Backward-compatible alias; no longer an upper bound. */
+#define MB_TCP_MAX_CLIENTS                      MB_TCP_DEFAULT_MAX_CLIENTS
 
 #endif /* MODBUS_PROTOCOL_DEFINES_H */

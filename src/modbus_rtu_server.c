@@ -1,6 +1,9 @@
 /**
  * @file modbus_rtu_server.c
  * @brief Modbus RTU server API - implementation.
+ *
+ * Frames requests from the serial byte stream (with CRC resync), dispatches
+ * the PDU through modbus_pdu (FC01-06, FC15, FC16) and frames the response.
  */
 
 #define _GNU_SOURCE
@@ -8,25 +11,19 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <string.h>
+#include <sys/select.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
+#include "modbus_pdu.h"
 #include "modbus_rtu_server.h"
 
 #define RTU_OFFSET_UNIT_ID        0u
 #define RTU_OFFSET_FC             1u
-#define RTU_OFFSET_ADDR_HIGH      2u
-#define RTU_OFFSET_ADDR_LOW       3u
-#define RTU_OFFSET_QTY_HIGH       4u
-#define RTU_OFFSET_QTY_LOW        5u
-#define RTU_OFFSET_FC06_VAL_HIGH  RTU_OFFSET_QTY_HIGH
-#define RTU_OFFSET_FC06_VAL_LOW   RTU_OFFSET_QTY_LOW
-#define RTU_OFFSET_FC16_BYTE_CNT  6u
-#define RTU_OFFSET_FC16_DATA      7u
+#define RTU_OFFSET_PDU            1u
+#define RTU_OFFSET_WRITE_BYTE_CNT 6u
 
-#define RTU_EXCEPTION_LEN         5u
-#define RTU_WRITE_RESPONSE_LEN    8u
 #define RTU_IO_FRAME_ERROR       (-10)
 
 static void srv_logv(mb_rtu_server_ctx_t *ctx, mb_rtu_log_level_t level,
@@ -42,15 +39,6 @@ static void srv_logv(mb_rtu_server_ctx_t *ctx, mb_rtu_log_level_t level,
     va_end(ap);
 }
 
-static uint8_t exception_from_callback_rc(int rc)
-{
-    if (rc >= (int)MODBUS_EX_ILLEGAL_FUNCTION &&
-        rc <= (int)MODBUS_EX_SERVER_DEVICE_FAILURE) {
-        return (uint8_t)rc;
-    }
-    return (uint8_t)MODBUS_EX_SERVER_DEVICE_FAILURE;
-}
-
 static uint32_t effective_timeout_ms(const mb_rtu_server_ctx_t *ctx)
 {
     return (ctx->cfg.recv_timeout_ms != 0u)
@@ -58,7 +46,12 @@ static uint32_t effective_timeout_ms(const mb_rtu_server_ctx_t *ctx)
            : MB_RTU_SERVER_DEFAULT_RECV_TIMEOUT_MS;
 }
 
-static uint64_t current_time_ms(void)
+static uint32_t effective_inter_frame_us(const mb_rtu_server_ctx_t *ctx)
+{
+    return mb_rtu_effective_timing(ctx->cfg.inter_frame_delay_us, ctx->t35_us);
+}
+
+static uint64_t current_time_us(void)
 {
     struct timespec ts;
 
@@ -66,16 +59,57 @@ static uint64_t current_time_ms(void)
         return 0u;
     }
 
-    return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
+    return ((uint64_t)ts.tv_sec * 1000000u) + ((uint64_t)ts.tv_nsec / 1000u);
+}
+
+static void sleep_us(uint64_t us)
+{
+    struct timespec delay = {
+        .tv_sec = (time_t)(us / 1000000u),
+        .tv_nsec = (long)((us % 1000000u) * 1000u),
+    };
+
+    while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {
+    }
+}
+
+/**
+ * Wait until @p since_us + @p required_us has elapsed (request-end → response).
+ * If @p since_us is unknown (0), waits the full required delay.
+ */
+static void wait_response_silence(uint64_t since_us, uint32_t required_us)
+{
+    uint64_t now_us;
+    uint64_t elapsed_us;
+
+    if (required_us == 0u) {
+        return;
+    }
+
+    if (since_us == 0u) {
+        sleep_us(required_us);
+        return;
+    }
+
+    now_us = current_time_us();
+    if (now_us < since_us) {
+        sleep_us(required_us);
+        return;
+    }
+
+    elapsed_us = now_us - since_us;
+    if (elapsed_us < (uint64_t)required_us) {
+        sleep_us((uint64_t)required_us - elapsed_us);
+    }
 }
 
 static void reset_rx_state(mb_rtu_server_ctx_t *ctx)
 {
     ctx->rx_len = 0u;
-    ctx->last_rx_ms = 0u;
+    ctx->last_rx_us = 0u;
 }
 
-static int read_available_bytes(mb_rtu_server_ctx_t *ctx, int fd, uint64_t now_ms)
+static int read_available_bytes(mb_rtu_server_ctx_t *ctx, int fd, uint64_t now_us)
 {
     while (ctx->rx_len < sizeof(ctx->rx_buffer)) {
         ssize_t n = read(fd, ctx->rx_buffer + ctx->rx_len,
@@ -83,7 +117,7 @@ static int read_available_bytes(mb_rtu_server_ctx_t *ctx, int fd, uint64_t now_m
 
         if (n > 0) {
             ctx->rx_len += (size_t)n;
-            ctx->last_rx_ms = now_ms;
+            ctx->last_rx_us = now_us;
             continue;
         }
         if (n == 0) {
@@ -111,25 +145,12 @@ static int get_complete_request_len(const uint8_t *adu, size_t rx_len,
     }
 
     uint8_t fc = adu[RTU_OFFSET_FC];
-    if (fc == MODBUS_FUNC_READ_HOLDING_REGISTERS ||
-        fc == MODBUS_FUNC_READ_INPUT_REGISTERS ||
-        fc == MODBUS_FUNC_WRITE_SINGLE_REGISTER) {
-        if (adu_cap < MODBUS_RTU_MIN_REQ_LENGTH) {
-            return RTU_IO_FRAME_ERROR;
-        }
-        if (rx_len < MODBUS_RTU_MIN_REQ_LENGTH) {
-            return 0;
-        }
-        *total_len = MODBUS_RTU_MIN_REQ_LENGTH;
-        return 1;
-    }
-
-    if (fc == MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS) {
-        if (rx_len < RTU_OFFSET_FC16_DATA) {
+    if (fc == MODBUS_FUNC_WRITE_MULTIPLE_COILS || fc == MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS) {
+        if (rx_len <= RTU_OFFSET_WRITE_BYTE_CNT) {
             return 0;
         }
 
-        uint8_t byte_count = adu[RTU_OFFSET_FC16_BYTE_CNT];
+        uint8_t byte_count = adu[RTU_OFFSET_WRITE_BYTE_CNT];
         size_t frame_len = 9u + (size_t)byte_count;
         if (byte_count == 0u || frame_len > adu_cap) {
             return RTU_IO_FRAME_ERROR;
@@ -141,7 +162,7 @@ static int get_complete_request_len(const uint8_t *adu, size_t rx_len,
         return 1;
     }
 
-    /* Most unsupported public function requests still use a fixed 8-byte RTU ADU. */
+    /* FC01-FC06 (and most unsupported public FCs) use a fixed 8-byte RTU ADU. */
     if (adu_cap < MODBUS_RTU_MIN_REQ_LENGTH) {
         return RTU_IO_FRAME_ERROR;
     }
@@ -152,29 +173,61 @@ static int get_complete_request_len(const uint8_t *adu, size_t rx_len,
     return 1;
 }
 
+static void drop_rx_bytes(mb_rtu_server_ctx_t *ctx, size_t count)
+{
+    size_t remaining = ctx->rx_len - count;
+
+    if (remaining > 0u) {
+        memmove(ctx->rx_buffer, ctx->rx_buffer + count, remaining);
+    }
+    ctx->rx_len = remaining;
+}
+
+/**
+ * Extract the next CRC-valid request frame from the RX buffer.
+ * A candidate that is malformed or fails CRC (e.g. another slave's response
+ * on a multi-drop bus) is skipped one byte at a time until a valid frame
+ * boundary is found.
+ *
+ * @return 1 with @p adu filled, 0 if more bytes are needed.
+ */
 static int extract_request_frame(mb_rtu_server_ctx_t *ctx,
                                  uint8_t *adu, size_t adu_cap,
                                  size_t *total_len)
 {
     size_t frame_len = 0u;
-    int rc = get_complete_request_len(ctx->rx_buffer, ctx->rx_len,
+    size_t dropped = 0u;
+    int rc;
+
+    for (;;) {
+        rc = get_complete_request_len(ctx->rx_buffer, ctx->rx_len,
                                       sizeof(ctx->rx_buffer), &frame_len);
-    if (rc <= 0) {
-        return rc;
+        if (rc == 0) {
+            break;
+        }
+        if (rc == 1 && frame_len <= adu_cap &&
+            mb_rtu_validate_crc(ctx->rx_buffer, frame_len) == 0) {
+            break;
+        }
+        drop_rx_bytes(ctx, 1u);
+        dropped++;
     }
-    if (!adu || frame_len > adu_cap) {
-        return RTU_IO_FRAME_ERROR;
+
+    if (dropped > 0u) {
+        srv_logv(ctx, MB_RTU_LOG_DEBUG, "rtu resync: skipped %zu byte(s)", dropped);
+    }
+    if (rc == 0) {
+        if (ctx->rx_len == 0u) {
+            ctx->last_rx_us = 0u;
+        }
+        return 0;
     }
 
     memcpy(adu, ctx->rx_buffer, frame_len);
-
-    size_t remaining = ctx->rx_len - frame_len;
-    if (remaining > 0u) {
-        memmove(ctx->rx_buffer, ctx->rx_buffer + frame_len, remaining);
+    drop_rx_bytes(ctx, frame_len);
+    if (ctx->rx_len == 0u) {
+        ctx->last_rx_us = 0u;
     }
-
-    ctx->rx_len = remaining;
-    ctx->last_rx_ms = (remaining > 0u) ? current_time_ms() : 0u;
     *total_len = frame_len;
     return 1;
 }
@@ -187,6 +240,13 @@ static int write_all(int fd, const uint8_t *buf, size_t len)
         ssize_t n = write(fd, buf + sent, len - sent);
         if (n < 0) {
             if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                fd_set writefds;
+                FD_ZERO(&writefds);
+                FD_SET(fd, &writefds);
+                select(fd + 1, NULL, &writefds, NULL, NULL);
                 continue;
             }
             return -1;
@@ -203,43 +263,53 @@ static int write_all(int fd, const uint8_t *buf, size_t len)
     return 0;
 }
 
-static int build_exception_response(uint8_t unit_id, uint8_t fc, uint8_t exception_code,
-                                    uint8_t *buf, size_t buf_cap)
+/** Send one response frame, toggling the optional TX-enable hook around it. */
+static int send_frame(mb_rtu_server_ctx_t *ctx, int fd, const uint8_t *buf, size_t len)
 {
-    if (!buf || buf_cap < RTU_EXCEPTION_LEN) {
-        return -1;
+    if (ctx->cfg.on_tx_enable) {
+        ctx->cfg.on_tx_enable(ctx->cfg.tx_userdata, fd, 1);
     }
-
-    buf[RTU_OFFSET_UNIT_ID] = unit_id;
-    buf[RTU_OFFSET_FC] = fc | (uint8_t)MODBUS_EXCEPTION_FLAG;
-    buf[2] = exception_code;
-
-    if (mb_rtu_append_crc(buf, RTU_EXCEPTION_LEN - MODBUS_RTU_CRC_LEN, buf_cap) != 0) {
-        return -1;
+    int rc = write_all(fd, buf, len);
+    if (ctx->cfg.on_tx_enable) {
+        ctx->cfg.on_tx_enable(ctx->cfg.tx_userdata, fd, 0);
     }
-    return (int)RTU_EXCEPTION_LEN;
+    return rc;
 }
 
-static int build_fc16_response(uint8_t unit_id, uint8_t fc,
-                               uint16_t start_addr, uint16_t qty,
-                               uint8_t *buf, size_t buf_cap)
+/** Consume the transceiver's local echo of @p len transmitted bytes. */
+static void discard_echo(mb_rtu_server_ctx_t *ctx, int fd, size_t len)
 {
-    if (!buf || buf_cap < RTU_WRITE_RESPONSE_LEN) {
-        return -1;
-    }
+    uint8_t scratch[MODBUS_RTU_MAX_ADU_LENGTH];
+    uint64_t deadline_us = current_time_us() + (uint64_t)effective_timeout_ms(ctx) * 1000u;
+    size_t got = 0u;
 
-    buf[RTU_OFFSET_UNIT_ID] = unit_id;
-    buf[RTU_OFFSET_FC] = fc;
-    buf[RTU_OFFSET_ADDR_HIGH] = (uint8_t)(start_addr >> 8);
-    buf[RTU_OFFSET_ADDR_LOW] = (uint8_t)(start_addr & 0xFFu);
-    buf[RTU_OFFSET_QTY_HIGH] = (uint8_t)(qty >> 8);
-    buf[RTU_OFFSET_QTY_LOW] = (uint8_t)(qty & 0xFFu);
+    while (got < len) {
+        uint64_t now_us = current_time_us();
+        if (now_us >= deadline_us) {
+            srv_logv(ctx, MB_RTU_LOG_WARN, "local echo incomplete: %zu of %zu bytes",
+                     got, len);
+            return;
+        }
 
-    if (mb_rtu_append_crc(buf, RTU_WRITE_RESPONSE_LEN - MODBUS_RTU_CRC_LEN,
-                          buf_cap) != 0) {
-        return -1;
+        uint64_t remaining_us = deadline_us - now_us;
+        fd_set readfds;
+        struct timeval tv = {
+            .tv_sec = (time_t)(remaining_us / 1000000u),
+            .tv_usec = (suseconds_t)(remaining_us % 1000000u),
+        };
+        FD_ZERO(&readfds);
+        FD_SET(fd, &readfds);
+        if (select(fd + 1, &readfds, NULL, NULL, &tv) <= 0) {
+            continue;
+        }
+
+        ssize_t n = read(fd, scratch, len - got);
+        if (n > 0) {
+            got += (size_t)n;
+        } else if (n == 0 || (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            return;
+        }
     }
-    return (int)RTU_WRITE_RESPONSE_LEN;
 }
 
 static int unit_id_matches(const mb_rtu_server_ctx_t *ctx, uint8_t unit_id)
@@ -259,36 +329,26 @@ static int server_on_process(void *userdata, int serial_fd)
     uint8_t adu[MODBUS_RTU_MAX_ADU_LENGTH];
     uint8_t resp[MODBUS_RTU_MAX_ADU_LENGTH];
     size_t total_len = 0u;
-    int resp_len = -1;
 
-    uint64_t now_ms = current_time_ms();
-    if (ctx->rx_len > 0u && ctx->last_rx_ms > 0u &&
-        now_ms >= ctx->last_rx_ms &&
-        (now_ms - ctx->last_rx_ms) > (uint64_t)effective_timeout_ms(ctx)) {
-        srv_logv(ctx, MB_RTU_LOG_WARN, "rtu frame assembly timeout");
+    uint64_t now_us = current_time_us();
+    uint64_t timeout_us = (uint64_t)effective_timeout_ms(ctx) * 1000u;
+
+    if (ctx->rx_len > 0u && ctx->last_rx_us > 0u &&
+        now_us >= ctx->last_rx_us &&
+        (now_us - ctx->last_rx_us) > timeout_us) {
+        srv_logv(ctx, MB_RTU_LOG_DEBUG, "rtu frame assembly timeout");
         reset_rx_state(ctx);
     }
 
-    int rc = read_available_bytes(ctx, serial_fd, now_ms);
+    int rc = read_available_bytes(ctx, serial_fd, now_us);
     if (rc < 0) {
         return -1;
     }
 
-    rc = extract_request_frame(ctx, adu, sizeof(adu), &total_len);
-    if (rc == 0) {
-        return 0;
-    }
-    if (rc == RTU_IO_FRAME_ERROR) {
-        srv_logv(ctx, MB_RTU_LOG_WARN, "invalid rtu frame");
-        reset_rx_state(ctx);
-        return 0;
-    }
-    if (rc < 0) {
-        return -1;
-    }
+    /* Capture request-end time before extract clears last_rx_us. */
+    uint64_t request_end_us = ctx->last_rx_us;
 
-    if (mb_rtu_validate_crc(adu, total_len) != 0) {
-        srv_logv(ctx, MB_RTU_LOG_WARN, "crc validation failed");
+    if (extract_request_frame(ctx, adu, sizeof(adu), &total_len) == 0) {
         return 0;
     }
 
@@ -297,122 +357,45 @@ static int server_on_process(void *userdata, int serial_fd)
     int is_broadcast = (unit_id == MODBUS_RTU_BROADCAST_ADDRESS);
 
     if (!unit_id_matches(ctx, unit_id)) {
-        srv_logv(ctx, MB_RTU_LOG_WARN,
+        srv_logv(ctx, MB_RTU_LOG_DEBUG,
                  "unit_id mismatch: received %u, expected %u",
                  (unsigned)unit_id, (unsigned)ctx->cfg.unit_id);
         return 0;
     }
 
-    if (is_broadcast &&
-        fc != MODBUS_FUNC_WRITE_SINGLE_REGISTER &&
-        fc != MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS) {
+    if (is_broadcast && !mb_pdu_is_write(fc)) {
         return 0;
     }
 
-    uint8_t parsed_fc = 0u;
-    uint16_t start_addr = 0u;
-    uint16_t qty = 0u;
-    if (mb_rtu_parse_request(adu, total_len, &parsed_fc, &start_addr, &qty) != 0) {
-        resp_len = build_exception_response(unit_id, fc, MODBUS_EX_ILLEGAL_FUNCTION,
-                                            resp, sizeof(resp));
-        goto send_response;
-    }
+    const mb_pdu_handlers_t handlers = {
+        .read_registers = ctx->cfg.on_read,
+        .write_registers = ctx->cfg.on_write,
+        .read_bits = ctx->cfg.on_read_bits,
+        .write_bits = ctx->cfg.on_write_bits,
+        .userdata = ctx->cfg.userdata,
+    };
+    size_t pdu_len = total_len - RTU_OFFSET_PDU - MODBUS_RTU_CRC_LEN;
+    size_t resp_pdu_len = mb_pdu_handle_request(&handlers, adu + RTU_OFFSET_PDU, pdu_len,
+                                                resp + RTU_OFFSET_PDU);
 
-    switch (parsed_fc) {
-        case MODBUS_FUNC_READ_HOLDING_REGISTERS:
-        case MODBUS_FUNC_READ_INPUT_REGISTERS: {
-            if (qty == 0u || qty > MODBUS_MAX_READ_REGISTERS) {
-                resp_len = build_exception_response(unit_id, parsed_fc,
-                                                    MODBUS_EX_ILLEGAL_DATA_VALUE,
-                                                    resp, sizeof(resp));
-                break;
-            }
-
-            uint16_t data[MODBUS_MAX_READ_REGISTERS];
-            rc = ctx->cfg.on_read
-                 ? ctx->cfg.on_read(parsed_fc, start_addr, qty, data, ctx->cfg.userdata)
-                 : -1;
-            if (rc != 0) {
-                resp_len = build_exception_response(unit_id, parsed_fc,
-                                                    exception_from_callback_rc(rc),
-                                                    resp, sizeof(resp));
-            } else {
-                resp_len = mb_rtu_build_read_registers_response(parsed_fc, unit_id,
-                                                                data, qty,
-                                                                resp, sizeof(resp));
-            }
-            break;
-        }
-
-        case MODBUS_FUNC_WRITE_SINGLE_REGISTER: {
-            uint16_t value = ((uint16_t)adu[RTU_OFFSET_FC06_VAL_HIGH] << 8)
-                           | (uint16_t)adu[RTU_OFFSET_FC06_VAL_LOW];
-            rc = ctx->cfg.on_write
-                 ? ctx->cfg.on_write(start_addr, 1u, &value, ctx->cfg.userdata)
-                 : -1;
-            if (rc != 0) {
-                resp_len = build_exception_response(unit_id, parsed_fc,
-                                                    exception_from_callback_rc(rc),
-                                                    resp, sizeof(resp));
-            } else {
-                memcpy(resp, adu, total_len);
-                resp_len = (int)total_len;
-            }
-            break;
-        }
-
-        case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS: {
-            if (qty == 0u || qty > MODBUS_MAX_WRITE_REGISTERS) {
-                resp_len = build_exception_response(unit_id, parsed_fc,
-                                                    MODBUS_EX_ILLEGAL_DATA_VALUE,
-                                                    resp, sizeof(resp));
-                break;
-            }
-
-            uint8_t byte_count = adu[RTU_OFFSET_FC16_BYTE_CNT];
-            if (byte_count != (uint8_t)(qty * 2u) ||
-                total_len != 9u + (size_t)byte_count) {
-                resp_len = build_exception_response(unit_id, parsed_fc,
-                                                    MODBUS_EX_ILLEGAL_DATA_VALUE,
-                                                    resp, sizeof(resp));
-                break;
-            }
-
-            uint16_t data[MODBUS_MAX_WRITE_REGISTERS];
-            for (uint16_t i = 0u; i < qty; i++) {
-                size_t offset = RTU_OFFSET_FC16_DATA + (size_t)(i * 2u);
-                data[i] = ((uint16_t)adu[offset] << 8) | (uint16_t)adu[offset + 1u];
-            }
-
-            rc = ctx->cfg.on_write
-                 ? ctx->cfg.on_write(start_addr, qty, data, ctx->cfg.userdata)
-                 : -1;
-            if (rc != 0) {
-                resp_len = build_exception_response(unit_id, parsed_fc,
-                                                    exception_from_callback_rc(rc),
-                                                    resp, sizeof(resp));
-            } else {
-                resp_len = build_fc16_response(unit_id, parsed_fc, start_addr, qty,
-                                               resp, sizeof(resp));
-            }
-            break;
-        }
-
-        default:
-            resp_len = build_exception_response(unit_id, parsed_fc,
-                                                MODBUS_EX_ILLEGAL_FUNCTION,
-                                                resp, sizeof(resp));
-            break;
-    }
-
-send_response:
     if (is_broadcast) {
         return 0;
     }
 
-    if (resp_len > 0 && write_all(serial_fd, resp, (size_t)resp_len) != 0) {
+    resp[RTU_OFFSET_UNIT_ID] = unit_id;
+    size_t resp_len = RTU_OFFSET_PDU + resp_pdu_len;
+    if (mb_rtu_append_crc(resp, resp_len, sizeof(resp)) != 0) {
+        return -1;
+    }
+    resp_len += MODBUS_RTU_CRC_LEN;
+
+    wait_response_silence(request_end_us, effective_inter_frame_us(ctx));
+    if (send_frame(ctx, serial_fd, resp, resp_len) != 0) {
         srv_logv(ctx, MB_RTU_LOG_ERROR, "send response failed");
         return -1;
+    }
+    if (ctx->cfg.local_echo) {
+        discard_echo(ctx, serial_fd, resp_len);
     }
 
     return 0;
@@ -437,6 +420,9 @@ int mb_rtu_server_start(mb_rtu_server_ctx_t *ctx, const mb_rtu_server_config_t *
     if (!ctx || !cfg || !cfg->device || cfg->device[0] == '\0') {
         return -1;
     }
+    if (ctx->transport.initialized) {
+        return -1;
+    }
 
     memset(ctx, 0, sizeof(*ctx));
     ctx->cfg = *cfg;
@@ -444,14 +430,18 @@ int mb_rtu_server_start(mb_rtu_server_ctx_t *ctx, const mb_rtu_server_config_t *
         ctx->cfg.recv_timeout_ms = MB_RTU_SERVER_DEFAULT_RECV_TIMEOUT_MS;
     }
 
+    mb_rtu_serial_config_t serial = {
+        .device = cfg->device,
+        .baud_rate = cfg->baud_rate,
+        .data_bits = cfg->data_bits,
+        .stop_bits = cfg->stop_bits,
+        .parity = cfg->parity,
+        .rs485_mode = cfg->rs485_mode,
+    };
+    ctx->t35_us = mb_rtu_t35_us(&serial);
+
     mb_rtu_config_t transport_cfg = {
-        .serial = {
-            .device = cfg->device,
-            .baud_rate = cfg->baud_rate,
-            .data_bits = cfg->data_bits,
-            .stop_bits = cfg->stop_bits,
-            .parity = cfg->parity,
-        },
+        .serial = serial,
         .recv_timeout_ms = ctx->cfg.recv_timeout_ms,
         .userdata = ctx,
         .on_process = server_on_process,
