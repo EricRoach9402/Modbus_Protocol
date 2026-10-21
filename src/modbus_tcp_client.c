@@ -24,8 +24,8 @@
 
 /* ── Default tunables ──────────────────────────────────────────────────── */
 
-#define DEFAULT_CONNECT_TIMEOUT_SEC     5u
-#define DEFAULT_RESPONSE_TIMEOUT_MS  1000u
+#define DEFAULT_CONNECT_TIMEOUT_SEC 5u
+#define DEFAULT_RESPONSE_TIMEOUT_MS 1000u
 
 /* ── Modbus TCP ADU byte-offset map ────────────────────────────────────────
  *
@@ -40,24 +40,24 @@
  *   6    Unit ID
  *   7+   PDU (function code + data)
  * ──────────────────────────────────────────────────────────────────────── */
-#define ADU_OFFSET_TID_HIGH         0u
-#define ADU_OFFSET_TID_LOW          1u
-#define ADU_OFFSET_PROTO_HIGH       2u
-#define ADU_OFFSET_PROTO_LOW        3u
-#define ADU_OFFSET_LEN_HIGH         4u
-#define ADU_OFFSET_LEN_LOW          5u
-#define ADU_OFFSET_UNIT_ID          6u
-#define ADU_OFFSET_PDU              7u
+#define ADU_OFFSET_TID_HIGH 0u
+#define ADU_OFFSET_TID_LOW 1u
+#define ADU_OFFSET_PROTO_HIGH 2u
+#define ADU_OFFSET_PROTO_LOW 3u
+#define ADU_OFFSET_LEN_HIGH 4u
+#define ADU_OFFSET_LEN_LOW 5u
+#define ADU_OFFSET_UNIT_ID 6u
+#define ADU_OFFSET_PDU 7u
 
 /* recv_response(): complete frame received but Protocol ID is not Modbus (0). */
-#define RECV_PROTOCOL_ID_ERROR    (-3)
+#define RECV_PROTOCOL_ID_ERROR (-3)
 /* recv_response(): timed out mid-frame; the byte stream is no longer aligned. */
-#define RECV_PARTIAL_TIMEOUT      (-4)
+#define RECV_PARTIAL_TIMEOUT (-4)
 
 /* ── Logging helper ────────────────────────────────────────────────────── */
 
 static void cli_logv(mb_tcp_client_ctx_t *ctx, mb_tcp_log_level_t level,
-                     const char *fmt, ...)
+    const char *fmt, ...)
 {
     if (!ctx->cfg.logv) {
         return;
@@ -83,14 +83,14 @@ static int recv_exact(int fd, uint8_t *buf, size_t len)
     while (received < len) {
         ssize_t n = recv(fd, buf + received, len - received, 0);
         if (n == 0) {
-            return -1;      /* peer closed connection */
+            return -1; /* peer closed connection */
         }
         if (n < 0) {
             if (errno == EINTR) {
                 continue;
             }
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) {
-                return -2;  /* timeout */
+                return -2; /* timeout */
             }
             return -1;
         }
@@ -174,7 +174,7 @@ static int wait_readable(int fd, uint64_t deadline_ms)
  *         RECV_PROTOCOL_ID_ERROR.
  */
 static int recv_response(int sock, uint8_t *buf, size_t buf_cap, uint64_t deadline_ms,
-                         size_t *total_len)
+    size_t *total_len)
 {
     int rc = wait_readable(sock, deadline_ms);
     if (rc != 0) {
@@ -191,7 +191,7 @@ static int recv_response(int sock, uint8_t *buf, size_t buf_cap, uint64_t deadli
 
     if (mbap_remaining == 0u ||
         mbap_remaining > (buf_cap - MODBUS_TCP_MBAP_HEADER_LEN)) {
-        return -1;  /* malformed length */
+        return -1; /* malformed length */
     }
 
     rc = recv_exact(sock, buf + MODBUS_TCP_MBAP_HEADER_LEN, mbap_remaining);
@@ -219,7 +219,7 @@ static int recv_response(int sock, uint8_t *buf, size_t buf_cap, uint64_t deadli
  *         MB_TCP_CLIENT_ERR_* code.
  */
 static int transact(mb_tcp_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len,
-                    uint8_t *resp)
+    uint8_t *resp)
 {
     uint8_t req[MODBUS_TCP_MAX_ADU_LENGTH];
     size_t total_len = 0u;
@@ -270,7 +270,7 @@ static int transact(mb_tcp_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len
             break;
         }
         cli_logv(ctx, MB_TCP_LOG_WARN, "FC%02X discarding response TID %u (expected %u)",
-                 (unsigned)fc, (unsigned)resp_tid, (unsigned)tid);
+            (unsigned)fc, (unsigned)resp_tid, (unsigned)tid);
         stale_seen = 1;
     }
 
@@ -284,7 +284,7 @@ static int transact(mb_tcp_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len
     }
     if (rc != 0) {
         cli_logv(ctx, MB_TCP_LOG_ERROR, "FC%02X recv failed (rc=%d)%s", (unsigned)fc, rc,
-                 (rc == -1 || rc == RECV_PARTIAL_TIMEOUT) ? ", connection closed" : "");
+            (rc == -1 || rc == RECV_PARTIAL_TIMEOUT) ? ", connection closed" : "");
         return recv_err_to_client_err(rc);
     }
     if (total_len <= ADU_OFFSET_PDU) {
@@ -294,7 +294,7 @@ static int transact(mb_tcp_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len
     rc = mb_pdu_check_response(pdu, resp + ADU_OFFSET_PDU, total_len - ADU_OFFSET_PDU);
     if (rc == MB_PDU_ERR_FRAME) {
         cli_logv(ctx, MB_TCP_LOG_WARN, "FC%02X malformed or mismatched response",
-                 (unsigned)fc);
+            (unsigned)fc);
         return MB_TCP_CLIENT_ERR_FRAME;
     }
     if (rc > 0) {
@@ -304,7 +304,7 @@ static int transact(mb_tcp_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len
 }
 
 static int read_registers(mb_tcp_client_ctx_t *ctx, uint8_t fc,
-                          uint16_t addr, uint16_t qty, uint16_t *out)
+    uint16_t addr, uint16_t qty, uint16_t *out)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
@@ -322,7 +322,7 @@ static int read_registers(mb_tcp_client_ctx_t *ctx, uint8_t fc,
 }
 
 static int read_bits(mb_tcp_client_ctx_t *ctx, uint8_t fc,
-                     uint16_t addr, uint16_t qty, uint8_t *out)
+    uint16_t addr, uint16_t qty, uint8_t *out)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
@@ -352,9 +352,9 @@ int mb_tcp_client_connect(mb_tcp_client_ctx_t *ctx, const mb_tcp_client_config_t
     }
 
     memset(ctx, 0, sizeof(*ctx));
-    ctx->cfg  = *cfg;
+    ctx->cfg = *cfg;
     ctx->sock = -1;
-    ctx->tid  = 0u;
+    ctx->tid = 0u;
 
     if (pthread_mutex_init(&ctx->lock, NULL) != 0) {
         return -1;
@@ -377,15 +377,15 @@ int mb_tcp_client_connect(mb_tcp_client_ctx_t *ctx, const mb_tcp_client_config_t
                        : DEFAULT_RESPONSE_TIMEOUT_MS;
 
     struct timeval response_tv = {
-        .tv_sec  = (time_t)(resp_ms / 1000u),
+        .tv_sec = (time_t)(resp_ms / 1000u),
         .tv_usec = (suseconds_t)((resp_ms % 1000u) * 1000u),
     };
     setsockopt(ctx->sock, SOL_SOCKET, SO_RCVTIMEO,
-               &response_tv, sizeof(response_tv));
+        &response_tv, sizeof(response_tv));
 
     ctx->initialized = 1;
     cli_logv(ctx, MB_TCP_LOG_DEBUG,
-             "connected to %s:%u", cfg->remote_host, (unsigned)cfg->port);
+        "connected to %s:%u", cfg->remote_host, (unsigned)cfg->port);
     return 0;
 }
 
@@ -418,33 +418,33 @@ int mb_tcp_client_set_unit_id(mb_tcp_client_ctx_t *ctx, uint8_t unit_id)
 }
 
 int mb_tcp_client_read_holding_registers(mb_tcp_client_ctx_t *ctx,
-                                          uint16_t addr, uint16_t qty,
-                                          uint16_t *out)
+    uint16_t addr, uint16_t qty,
+    uint16_t *out)
 {
     return read_registers(ctx, MODBUS_FUNC_READ_HOLDING_REGISTERS, addr, qty, out);
 }
 
 int mb_tcp_client_read_input_registers(mb_tcp_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty,
-                                       uint16_t *out)
+    uint16_t addr, uint16_t qty,
+    uint16_t *out)
 {
     return read_registers(ctx, MODBUS_FUNC_READ_INPUT_REGISTERS, addr, qty, out);
 }
 
 int mb_tcp_client_read_coils(mb_tcp_client_ctx_t *ctx,
-                             uint16_t addr, uint16_t qty, uint8_t *out)
+    uint16_t addr, uint16_t qty, uint8_t *out)
 {
     return read_bits(ctx, MODBUS_FUNC_READ_COILS, addr, qty, out);
 }
 
 int mb_tcp_client_read_discrete_inputs(mb_tcp_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty, uint8_t *out)
+    uint16_t addr, uint16_t qty, uint8_t *out)
 {
     return read_bits(ctx, MODBUS_FUNC_READ_DISCRETE_INPUTS, addr, qty, out);
 }
 
 int mb_tcp_client_write_single_register(mb_tcp_client_ctx_t *ctx,
-                                         uint16_t addr, uint16_t value)
+    uint16_t addr, uint16_t value)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
@@ -454,12 +454,12 @@ int mb_tcp_client_write_single_register(mb_tcp_client_ctx_t *ctx,
     }
 
     size_t pdu_len = mb_pdu_build_write_single(pdu, MODBUS_FUNC_WRITE_SINGLE_REGISTER,
-                                               addr, value);
+        addr, value);
     return transact(ctx, pdu, pdu_len, resp);
 }
 
 int mb_tcp_client_write_single_coil(mb_tcp_client_ctx_t *ctx,
-                                    uint16_t addr, uint8_t value)
+    uint16_t addr, uint8_t value)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
@@ -469,13 +469,13 @@ int mb_tcp_client_write_single_coil(mb_tcp_client_ctx_t *ctx,
     }
 
     size_t pdu_len = mb_pdu_build_write_single(pdu, MODBUS_FUNC_WRITE_SINGLE_COIL, addr,
-                                               value ? MODBUS_COIL_ON : MODBUS_COIL_OFF);
+        value ? MODBUS_COIL_ON : MODBUS_COIL_OFF);
     return transact(ctx, pdu, pdu_len, resp);
 }
 
 int mb_tcp_client_write_multiple_registers(mb_tcp_client_ctx_t *ctx,
-                                            uint16_t addr, uint16_t qty,
-                                            const uint16_t *data)
+    uint16_t addr, uint16_t qty,
+    const uint16_t *data)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];
@@ -489,8 +489,8 @@ int mb_tcp_client_write_multiple_registers(mb_tcp_client_ctx_t *ctx,
 }
 
 int mb_tcp_client_write_multiple_coils(mb_tcp_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty,
-                                       const uint8_t *values)
+    uint16_t addr, uint16_t qty,
+    const uint8_t *values)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_TCP_MAX_ADU_LENGTH];

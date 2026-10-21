@@ -26,21 +26,21 @@
 #define O_CLOEXEC 0
 #endif
 
-#define RTU_OFFSET_UNIT_ID        0u
-#define RTU_OFFSET_FC             1u
-#define RTU_OFFSET_ADDR_HIGH      2u
-#define RTU_OFFSET_ADDR_LOW       3u
-#define RTU_OFFSET_QTY_HIGH       4u
-#define RTU_OFFSET_QTY_LOW        5u
-#define RTU_OFFSET_FC16_BYTE_CNT  6u
-#define RTU_OFFSET_FC16_DATA      7u
+#define RTU_OFFSET_UNIT_ID 0u
+#define RTU_OFFSET_FC 1u
+#define RTU_OFFSET_ADDR_HIGH 2u
+#define RTU_OFFSET_ADDR_LOW 3u
+#define RTU_OFFSET_QTY_HIGH 4u
+#define RTU_OFFSET_QTY_LOW 5u
+#define RTU_OFFSET_FC16_BYTE_CNT 6u
+#define RTU_OFFSET_FC16_DATA 7u
 
-#define RTU_STANDARD_PDU_LEN      5u
-#define RTU_READ_RESPONSE_BASE    5u
-#define RTU_PROCESS_PAUSE_NS      1000000L
+#define RTU_STANDARD_PDU_LEN 5u
+#define RTU_READ_RESPONSE_BASE 5u
+#define RTU_PROCESS_PAUSE_NS 1000000L
 
-#define RTU_T35_FIXED_BAUD_ABOVE  19200u
-#define RTU_T35_FIXED_US          1750u
+#define RTU_T35_FIXED_BAUD_ABOVE 19200u
+#define RTU_T35_FIXED_US 1750u
 
 static void mb_rtu_logv(mb_rtu_ctx_t *ctx, mb_rtu_log_level_t level, const char *fmt, ...)
 {
@@ -399,7 +399,7 @@ uint32_t mb_rtu_effective_timing(uint32_t configured, uint32_t default_value)
 }
 
 int mb_rtu_build_request_basis(uint8_t unit_id, int function, int addr,
-                               uint16_t nb, uint8_t *req, size_t req_cap)
+    uint16_t nb, uint8_t *req, size_t req_cap)
 {
     if (!req || req_cap < MODBUS_RTU_MIN_REQ_LENGTH) {
         return -1;
@@ -408,12 +408,12 @@ int mb_rtu_build_request_basis(uint8_t unit_id, int function, int addr,
         return -1;
     }
 
-    req[RTU_OFFSET_UNIT_ID]   = unit_id;
-    req[RTU_OFFSET_FC]        = (uint8_t)function;
+    req[RTU_OFFSET_UNIT_ID] = unit_id;
+    req[RTU_OFFSET_FC] = (uint8_t)function;
     req[RTU_OFFSET_ADDR_HIGH] = (uint8_t)((unsigned)addr >> 8);
-    req[RTU_OFFSET_ADDR_LOW]  = (uint8_t)((unsigned)addr & 0xFFu);
-    req[RTU_OFFSET_QTY_HIGH]  = (uint8_t)(nb >> 8);
-    req[RTU_OFFSET_QTY_LOW]   = (uint8_t)(nb & 0xFFu);
+    req[RTU_OFFSET_ADDR_LOW] = (uint8_t)((unsigned)addr & 0xFFu);
+    req[RTU_OFFSET_QTY_HIGH] = (uint8_t)(nb >> 8);
+    req[RTU_OFFSET_QTY_LOW] = (uint8_t)(nb & 0xFFu);
 
     if (mb_rtu_append_crc(req, 1u + RTU_STANDARD_PDU_LEN, req_cap) != 0) {
         return -1;
@@ -423,14 +423,14 @@ int mb_rtu_build_request_basis(uint8_t unit_id, int function, int addr,
 }
 
 int mb_rtu_build_fc06_request(uint8_t unit_id, uint16_t addr, uint16_t value,
-                              uint8_t *req, size_t req_cap)
+    uint8_t *req, size_t req_cap)
 {
     return mb_rtu_build_request_basis(unit_id, MODBUS_FUNC_WRITE_SINGLE_REGISTER,
-                                      addr, value, req, req_cap);
+        addr, value, req, req_cap);
 }
 
 int mb_rtu_build_fc16_request(uint8_t unit_id, uint16_t addr, uint16_t num_registers,
-                              const uint16_t *values, uint8_t *req, size_t req_cap)
+    const uint16_t *values, uint8_t *req, size_t req_cap)
 {
     if (!req || !values || num_registers == 0u ||
         num_registers > MODBUS_MAX_WRITE_REGISTERS) {
@@ -443,12 +443,12 @@ int mb_rtu_build_fc16_request(uint8_t unit_id, uint16_t addr, uint16_t num_regis
         return -1;
     }
 
-    req[RTU_OFFSET_UNIT_ID]       = unit_id;
-    req[RTU_OFFSET_FC]            = (uint8_t)MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS;
-    req[RTU_OFFSET_ADDR_HIGH]     = (uint8_t)(addr >> 8);
-    req[RTU_OFFSET_ADDR_LOW]      = (uint8_t)(addr & 0xFFu);
-    req[RTU_OFFSET_QTY_HIGH]      = (uint8_t)(num_registers >> 8);
-    req[RTU_OFFSET_QTY_LOW]       = (uint8_t)(num_registers & 0xFFu);
+    req[RTU_OFFSET_UNIT_ID] = unit_id;
+    req[RTU_OFFSET_FC] = (uint8_t)MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS;
+    req[RTU_OFFSET_ADDR_HIGH] = (uint8_t)(addr >> 8);
+    req[RTU_OFFSET_ADDR_LOW] = (uint8_t)(addr & 0xFFu);
+    req[RTU_OFFSET_QTY_HIGH] = (uint8_t)(num_registers >> 8);
+    req[RTU_OFFSET_QTY_LOW] = (uint8_t)(num_registers & 0xFFu);
     req[RTU_OFFSET_FC16_BYTE_CNT] = byte_count;
 
     for (uint16_t i = 0u; i < num_registers; i++) {
@@ -465,7 +465,7 @@ int mb_rtu_build_fc16_request(uint8_t unit_id, uint16_t addr, uint16_t num_regis
 }
 
 int mb_rtu_parse_request(const uint8_t *request, size_t length, uint8_t *function_code,
-                         uint16_t *address, uint16_t *quantity)
+    uint16_t *address, uint16_t *quantity)
 {
     if (!request || !function_code || !address || !quantity ||
         length < MODBUS_RTU_MIN_REQ_LENGTH) {
@@ -491,8 +491,8 @@ int mb_rtu_parse_request(const uint8_t *request, size_t length, uint8_t *functio
 }
 
 int mb_rtu_build_read_registers_response(uint8_t function_code, uint8_t unit_id,
-                                         const uint16_t *data, uint16_t quantity,
-                                         uint8_t *response, size_t response_cap)
+    const uint16_t *data, uint16_t quantity,
+    uint8_t *response, size_t response_cap)
 {
     if (!response || !data || quantity > MODBUS_MAX_READ_REGISTERS) {
         return -1;

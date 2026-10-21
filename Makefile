@@ -85,7 +85,7 @@ EXAMPLE_RTU_SERVER := $(BUILD_DIR)/rtu_server_example
 EXAMPLE_RTU_CLIENT := $(BUILD_DIR)/rtu_client_example
 
 # ════════════════════════════════════════════════════════════════════════════
-.PHONY: all test examples clean clean-all info
+.PHONY: all test examples clean clean-all info compdb
 
 all: $(LIB)
 
@@ -174,3 +174,17 @@ info:
 	@echo "CFLAGS       = $(CFLAGS)"
 	@echo "BUILD_DIR    = $(BUILD_DIR)"
 	@echo "LIB          = $(LIB)"
+
+# ── clangd compile_commands.json ───────────────────────────────────────────
+# Regenerates the compilation database so clangd / IDEs resolve -Iinclude.
+compdb:
+	@python3 -c '\
+import json, pathlib; \
+root = pathlib.Path(".").resolve(); \
+flags = ["-std=c11", "-Wall", "-Wextra", "-I" + str(root / "include")]; \
+entries = [{"directory": str(root), "file": str(p), \
+            "arguments": ["gcc", "-c", *flags, str(p)]} \
+           for pat in ("src/*.c", "test/*.c", "examples/*.c") \
+           for p in sorted(root.glob(pat))]; \
+(root / "compile_commands.json").write_text(json.dumps(entries, indent=2) + "\n"); \
+print("[Makefile] wrote compile_commands.json (%d entries)" % len(entries))'

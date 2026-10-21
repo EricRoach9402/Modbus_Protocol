@@ -56,7 +56,7 @@ typedef struct mb_tcp_config {
     /** Bind outgoing socket to interface (Linux SO_BINDTODEVICE). NULL = skip. */
     const char *bind_iface;
     unsigned int connect_timeout_sec; /**< default 5 if 0 */
-    unsigned int connect_retry_sec;   /**< default 3 if 0 */
+    unsigned int connect_retry_sec; /**< default 3 if 0 */
     /**
      * Receive timeout applied to each accepted client socket (server mode only).
      * Protects recv from blocking indefinitely on a slow or malicious client.
@@ -104,9 +104,9 @@ typedef struct mb_tcp_ctx {
     mb_tcp_config_t cfg;
     int listen_sock;
     int stream_sock;
-    int *client_fds;                    /**< Internal: max_clients slots, -1 = free. */
-    uint16_t client_cap;                /**< Internal: number of client_fds slots. */
-    int initialized;                    /**< Internal: nonzero between start and stop. */
+    int *client_fds; /**< Internal: max_clients slots, -1 = free. */
+    uint16_t client_cap; /**< Internal: number of client_fds slots. */
+    int initialized; /**< Internal: nonzero between start and stop. */
 } mb_tcp_ctx_t;
 
 /**
@@ -134,7 +134,7 @@ int mb_tcp_send_all(int fd, const uint8_t *buf, size_t len);
  * @return 0 on success, -1 on error.
  */
 int mb_tcp_build_request_basis(mb_tcp_ctx_t *ctx, uint8_t modbus_uid, int function, int addr,
-                               uint16_t nb, uint8_t *req, size_t req_cap);
+    uint16_t nb, uint8_t *req, size_t req_cap);
 
 /**
  * Build a FC06 (Write Single Register) ADU into @p req.
@@ -144,8 +144,8 @@ int mb_tcp_build_request_basis(mb_tcp_ctx_t *ctx, uint8_t modbus_uid, int functi
  * @return 0 on success, -1 on error.
  */
 int mb_tcp_build_fc06_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
-                               uint16_t addr, uint16_t value,
-                               uint8_t *req, size_t req_cap);
+    uint16_t addr, uint16_t value,
+    uint8_t *req, size_t req_cap);
 
 /**
  * Build a FC16 (Write Multiple Registers) ADU into @p req.
@@ -156,28 +156,28 @@ int mb_tcp_build_fc06_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
  * @return total ADU byte length on success, -1 on error.
  */
 int mb_tcp_build_fc16_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
-                               uint16_t addr, uint16_t num_registers,
-                               const uint16_t *values,
-                               uint8_t *req, size_t req_cap);
+    uint16_t addr, uint16_t num_registers,
+    const uint16_t *values,
+    uint8_t *req, size_t req_cap);
 
 /**
  * Parse a Modbus TCP request: validates MBAP length vs buffer, then reads FC, address, quantity.
  * FC 06 forces quantity = 1.
  */
 int mb_tcp_parse_request(const uint8_t *request, size_t length, uint8_t *function_code,
-                         uint16_t *address, uint16_t *quantity);
+    uint16_t *address, uint16_t *quantity);
 
 /**
  * Build FC 03 / FC 04 style read response: MBAP + FC + byte_count + register data (BE).
  * @return total response length, or -1 on error.
  */
 int mb_tcp_build_read_registers_response(uint16_t tid, uint8_t function_code, uint8_t unit_id,
-                                         const uint16_t *data, uint16_t quantity, uint8_t *response,
-                                         size_t response_cap);
+    const uint16_t *data, uint16_t quantity, uint8_t *response,
+    size_t response_cap);
 
 /** Standalone connect (optional helper; no threads). @p bind_iface may be NULL. */
 int mb_tcp_connect(int *sock_out, const char *bind_iface, const char *remote_host, uint16_t port,
-                   unsigned int timeout_sec);
+    unsigned int timeout_sec);
 
 void mb_tcp_close(int *fd);
 

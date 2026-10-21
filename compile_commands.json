@@ -1,0 +1,171 @@
+[
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/src/modbus_pdu.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/src/modbus_pdu.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/src/modbus_rtu.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/src/modbus_rtu.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/src/modbus_rtu_client.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/src/modbus_rtu_client.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/src/modbus_rtu_server.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/src/modbus_rtu_server.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/src/modbus_tcp.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/src/modbus_tcp.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/src/modbus_tcp_client.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/src/modbus_tcp_client.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/src/modbus_tcp_server.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/src/modbus_tcp_server.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/test/test_modbus_rtu.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/test/test_modbus_rtu.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/test/test_modbus_tcp.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/test/test_modbus_tcp.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/examples/rtu_client_example.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/examples/rtu_client_example.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/examples/rtu_server_example.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/examples/rtu_server_example.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/examples/tcp_client_example.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/examples/tcp_client_example.c"
+    ]
+  },
+  {
+    "directory": "/home/eric/Modbus_Protocol",
+    "file": "/home/eric/Modbus_Protocol/examples/tcp_server_example.c",
+    "arguments": [
+      "gcc",
+      "-c",
+      "-std=c11",
+      "-Wall",
+      "-Wextra",
+      "-I/home/eric/Modbus_Protocol/include",
+      "/home/eric/Modbus_Protocol/examples/tcp_server_example.c"
+    ]
+  }
+]

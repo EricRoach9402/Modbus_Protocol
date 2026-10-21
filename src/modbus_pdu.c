@@ -108,13 +108,13 @@ size_t mb_pdu_build_read(uint8_t *pdu, uint8_t function_code, uint16_t addr, uin
 }
 
 size_t mb_pdu_build_write_single(uint8_t *pdu, uint8_t function_code,
-                                 uint16_t addr, uint16_t value)
+    uint16_t addr, uint16_t value)
 {
     return mb_pdu_build_read(pdu, function_code, addr, value);
 }
 
 size_t mb_pdu_build_write_registers(uint8_t *pdu, uint16_t addr, uint16_t qty,
-                                    const uint16_t *data)
+    const uint16_t *data)
 {
     mb_pdu_build_read(pdu, MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS, addr, qty);
     pdu[PDU_OFFSET_BYTE_COUNT] = (uint8_t)(qty * 2u);
@@ -125,7 +125,7 @@ size_t mb_pdu_build_write_registers(uint8_t *pdu, uint16_t addr, uint16_t qty,
 }
 
 size_t mb_pdu_build_write_coils(uint8_t *pdu, uint16_t addr, uint16_t qty,
-                                const uint8_t *values)
+    const uint8_t *values)
 {
     size_t byte_count = bit_byte_count(qty);
 
@@ -203,7 +203,7 @@ int mb_pdu_is_write(uint8_t function_code)
 }
 
 static size_t handle_read_registers(const mb_pdu_handlers_t *h, uint8_t fc,
-                                    uint16_t addr, uint16_t qty, uint8_t *resp)
+    uint16_t addr, uint16_t qty, uint8_t *resp)
 {
     uint16_t data[MODBUS_MAX_READ_REGISTERS];
 
@@ -231,7 +231,7 @@ static size_t handle_read_registers(const mb_pdu_handlers_t *h, uint8_t fc,
 }
 
 static size_t handle_read_bits(const mb_pdu_handlers_t *h, uint8_t fc,
-                               uint16_t addr, uint16_t qty, uint8_t *resp)
+    uint16_t addr, uint16_t qty, uint8_t *resp)
 {
     uint8_t bits[MODBUS_MAX_READ_BITS];
 
@@ -259,7 +259,7 @@ static size_t handle_read_bits(const mb_pdu_handlers_t *h, uint8_t fc,
 }
 
 static size_t handle_write_single_coil(const mb_pdu_handlers_t *h, const uint8_t *req,
-                                       uint8_t *resp)
+    uint8_t *resp)
 {
     uint8_t fc = req[PDU_OFFSET_FC];
     uint16_t value = get_u16(req + PDU_OFFSET_QTY);
@@ -284,7 +284,7 @@ static size_t handle_write_single_coil(const mb_pdu_handlers_t *h, const uint8_t
 }
 
 static size_t handle_write_single_register(const mb_pdu_handlers_t *h, const uint8_t *req,
-                                           uint8_t *resp)
+    uint8_t *resp)
 {
     uint8_t fc = req[PDU_OFFSET_FC];
     uint16_t value = get_u16(req + PDU_OFFSET_QTY);
@@ -301,7 +301,7 @@ static size_t handle_write_single_register(const mb_pdu_handlers_t *h, const uin
 }
 
 static size_t handle_write_multiple(const mb_pdu_handlers_t *h, const uint8_t *req,
-                                    size_t req_len, uint8_t *resp)
+    size_t req_len, uint8_t *resp)
 {
     uint8_t fc = req[PDU_OFFSET_FC];
     int is_coils = (fc == MODBUS_FUNC_WRITE_MULTIPLE_COILS);
@@ -348,7 +348,7 @@ static size_t handle_write_multiple(const mb_pdu_handlers_t *h, const uint8_t *r
 }
 
 size_t mb_pdu_handle_request(const mb_pdu_handlers_t *handlers,
-                             const uint8_t *req, size_t req_len, uint8_t *resp)
+    const uint8_t *req, size_t req_len, uint8_t *resp)
 {
     uint8_t fc = req[PDU_OFFSET_FC];
 

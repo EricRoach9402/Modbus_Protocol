@@ -47,15 +47,15 @@ extern "C" {
  * MB_TCP_CLIENT_ERR_NOT_CONNECTED; call mb_tcp_client_disconnect() then
  * mb_tcp_client_connect() to recover.
  */
-#define MB_TCP_CLIENT_OK                0
-#define MB_TCP_CLIENT_ERR_ARG          (-1)   /**< Invalid argument.               */
-#define MB_TCP_CLIENT_ERR_NOT_CONNECTED (-2)  /**< Not connected, or the connection
-                                                   was closed after a stream error. */
-#define MB_TCP_CLIENT_ERR_TRANSPORT    (-3)   /**< Socket send/recv error.         */
-#define MB_TCP_CLIENT_ERR_TIMEOUT      (-4)   /**< Response not received in time.  */
-#define MB_TCP_CLIENT_ERR_FRAME        (-5)   /**< Malformed or unexpected response. */
-#define MB_TCP_CLIENT_ERR_TID          (-6)   /**< Only replies with another TID
-                                                   arrived before the timeout. */
+#define MB_TCP_CLIENT_OK 0
+#define MB_TCP_CLIENT_ERR_ARG (-1) /**< Invalid argument. */
+/** Not connected, or the connection was closed after a stream error. */
+#define MB_TCP_CLIENT_ERR_NOT_CONNECTED (-2)
+#define MB_TCP_CLIENT_ERR_TRANSPORT (-3) /**< Socket send/recv error. */
+#define MB_TCP_CLIENT_ERR_TIMEOUT (-4) /**< Response not received in time. */
+#define MB_TCP_CLIENT_ERR_FRAME (-5) /**< Malformed or unexpected response. */
+/** Only replies with another TID arrived before the timeout. */
+#define MB_TCP_CLIENT_ERR_TID (-6)
 
 /* ── Configuration ─────────────────────────────────────────────────────── */
 
@@ -64,21 +64,20 @@ extern "C" {
  * mb_tcp_client_disconnect() returns.
  *
  * Fields that accept NULL:
- *   - bind_iface:    NULL = let OS choose interface via routing
- *   - logv:          NULL = suppress all log messages (silent mode)
- *   - log_userdata:  application-defined context; can be NULL if not used by logv
+ *   - bind_iface: NULL = let OS choose interface via routing
+ *   - logv: NULL = suppress all log messages (silent mode)
+ *   - log_userdata: application-defined context; can be NULL if not used by logv
  */
 typedef struct mb_tcp_client_config {
-    const char  *remote_host;           /**< Server IPv4 address string (required). */
-    uint16_t     port;                  /**< Server port (default Modbus: 502).      */
-    const char  *bind_iface;            /**< Bind to interface (SO_BINDTODEVICE);
-                                             NULL → system default.                  */
-    uint8_t      unit_id;               /**< Modbus unit ID sent in every request.   */
-    uint32_t     connect_timeout_sec;   /**< TCP connect timeout; 0 = default (5 s). */
-    uint32_t     response_timeout_ms;   /**< Per-request timeout; 0 = default (1 s). */
+    const char *remote_host; /**< Server IPv4 address string (required). */
+    uint16_t port; /**< Server port (default Modbus: 502). */
+    const char *bind_iface; /**< Bind to interface (SO_BINDTODEVICE); NULL → system default. */
+    uint8_t unit_id; /**< Modbus unit ID sent in every request. */
+    uint32_t connect_timeout_sec; /**< TCP connect timeout; 0 = default (5 s). */
+    uint32_t response_timeout_ms; /**< Per-request timeout; 0 = default (1 s). */
 
-    mb_tcp_logv_fn logv;                /**< Optional log sink; NULL → silent mode. */
-    void          *log_userdata;        /**< Context passed to logv; can be NULL.    */
+    mb_tcp_logv_fn logv; /**< Optional log sink; NULL → silent mode. */
+    void *log_userdata; /**< Context passed to logv; can be NULL. */
 } mb_tcp_client_config_t;
 
 /* ── Runtime context ───────────────────────────────────────────────────── */
@@ -88,12 +87,11 @@ typedef struct mb_tcp_client_config {
  * Do not modify fields directly after connect.
  */
 typedef struct mb_tcp_client_ctx {
-    int                    sock;    /**< Connected socket fd; -1 when disconnected. */
-    uint16_t               tid;     /**< Monotonic transaction ID counter.          */
-    pthread_mutex_t        lock;    /**< Serializes concurrent requests.            */
-    int                    initialized; /**< Internal: nonzero between a successful
-                                             connect and disconnect.               */
-    mb_tcp_client_config_t cfg;     /**< Copy of configuration.                     */
+    int sock; /**< Connected socket fd; -1 when disconnected. */
+    uint16_t tid; /**< Monotonic transaction ID counter. */
+    pthread_mutex_t lock; /**< Serializes concurrent requests. */
+    int initialized; /**< Internal: nonzero between a successful connect and disconnect. */
+    mb_tcp_client_config_t cfg; /**< Copy of configuration. */
 } mb_tcp_client_ctx_t;
 
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
@@ -140,13 +138,13 @@ int mb_tcp_client_set_unit_id(mb_tcp_client_ctx_t *ctx, uint8_t unit_id);
  *         MB_TCP_CLIENT_ERR_* code.
  */
 int mb_tcp_client_read_holding_registers(mb_tcp_client_ctx_t *ctx,
-                                          uint16_t addr, uint16_t qty,
-                                          uint16_t *out);
+    uint16_t addr, uint16_t qty,
+    uint16_t *out);
 
 /** FC04 – Read Input Registers.  Same contract as mb_tcp_client_read_holding_registers(). */
 int mb_tcp_client_read_input_registers(mb_tcp_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty,
-                                       uint16_t *out);
+    uint16_t addr, uint16_t qty,
+    uint16_t *out);
 
 /**
  * FC06 – Write Single Register.
@@ -161,7 +159,7 @@ int mb_tcp_client_read_input_registers(mb_tcp_client_ctx_t *ctx,
  *         MB_TCP_CLIENT_ERR_* code.
  */
 int mb_tcp_client_write_single_register(mb_tcp_client_ctx_t *ctx,
-                                         uint16_t addr, uint16_t value);
+    uint16_t addr, uint16_t value);
 
 /**
  * FC16 – Write Multiple Registers.
@@ -178,8 +176,8 @@ int mb_tcp_client_write_single_register(mb_tcp_client_ctx_t *ctx,
  *         MB_TCP_CLIENT_ERR_* code.
  */
 int mb_tcp_client_write_multiple_registers(mb_tcp_client_ctx_t *ctx,
-                                            uint16_t addr, uint16_t qty,
-                                            const uint16_t *data);
+    uint16_t addr, uint16_t qty,
+    const uint16_t *data);
 
 /* ── Coil / discrete input access ──────────────────────────────────────── */
 
@@ -192,15 +190,15 @@ int mb_tcp_client_write_multiple_registers(mb_tcp_client_ctx_t *ctx,
  *         MB_TCP_CLIENT_ERR_* code.
  */
 int mb_tcp_client_read_coils(mb_tcp_client_ctx_t *ctx,
-                             uint16_t addr, uint16_t qty, uint8_t *out);
+    uint16_t addr, uint16_t qty, uint8_t *out);
 
 /** FC02 – Read Discrete Inputs.  Same contract as mb_tcp_client_read_coils(). */
 int mb_tcp_client_read_discrete_inputs(mb_tcp_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty, uint8_t *out);
+    uint16_t addr, uint16_t qty, uint8_t *out);
 
 /** FC05 – Write Single Coil.  @p value nonzero = ON. */
 int mb_tcp_client_write_single_coil(mb_tcp_client_ctx_t *ctx,
-                                    uint16_t addr, uint8_t value);
+    uint16_t addr, uint8_t value);
 
 /**
  * FC15 – Write Multiple Coils.
@@ -209,8 +207,8 @@ int mb_tcp_client_write_single_coil(mb_tcp_client_ctx_t *ctx,
  * @param values  @p qty bytes, nonzero = ON.
  */
 int mb_tcp_client_write_multiple_coils(mb_tcp_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty,
-                                       const uint8_t *values);
+    uint16_t addr, uint16_t qty,
+    const uint8_t *values);
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,17 @@
+# clangd project config for Modbus_Protocol.
+# If red underlines persist after this file is added, restart the clangd
+# language server (Cursor: "clangd: Restart language server").
+
+CompileFlags:
+  Add:
+    - -Iinclude
+    - -std=c11
+    - -D_GNU_SOURCE
+    - -Wall
+    - -Wextra
+  # Drop driver-only flags that confuse clang when the Makefile used gcc.
+  Remove:
+    - -fPIC
+
+Index:
+  Background: Build

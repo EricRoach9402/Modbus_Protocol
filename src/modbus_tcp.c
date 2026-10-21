@@ -50,11 +50,11 @@ static void configure_client_socket(mb_tcp_ctx_t *ctx, int fd)
     if (ctx->cfg.keepalive_idle_sec != MB_TCP_KEEPALIVE_DISABLED) {
         int keep_alive = 1;
         int keep_idle = (int)value_or_default(ctx->cfg.keepalive_idle_sec,
-                                              MB_TCP_DEFAULT_KEEPALIVE_IDLE_SEC);
+            MB_TCP_DEFAULT_KEEPALIVE_IDLE_SEC);
         int keep_intvl = (int)value_or_default(ctx->cfg.keepalive_interval_sec,
-                                               MB_TCP_DEFAULT_KEEPALIVE_INTERVAL_SEC);
+            MB_TCP_DEFAULT_KEEPALIVE_INTERVAL_SEC);
         int keep_cnt = (int)value_or_default(ctx->cfg.keepalive_count,
-                                             MB_TCP_DEFAULT_KEEPALIVE_COUNT);
+            MB_TCP_DEFAULT_KEEPALIVE_COUNT);
         setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive));
         setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keep_idle, sizeof(keep_idle));
         setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keep_intvl, sizeof(keep_intvl));
@@ -141,7 +141,7 @@ int mb_tcp_start(mb_tcp_ctx_t *ctx, const mb_tcp_config_t *cfg)
 
     if (ctx->cfg.mode == MB_TCP_MODE_LISTEN_SERVER) {
         ctx->client_cap = (uint16_t)value_or_default(ctx->cfg.max_clients,
-                                                     MB_TCP_DEFAULT_MAX_CLIENTS);
+            MB_TCP_DEFAULT_MAX_CLIENTS);
         ctx->client_fds = malloc(sizeof(int) * ctx->client_cap);
         if (!ctx->client_fds) {
             return -1;
@@ -318,11 +318,11 @@ static void *mb_tcp_server_thread(void *arg)
             char addr_str[INET_ADDRSTRLEN] = "?";
             inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str));
             mb_tcp_logv(ctx, MB_TCP_LOG_DEBUG, "new client fd %d from %s:%u", new_socket,
-                        addr_str, (unsigned)ntohs(client_addr.sin_port));
+                addr_str, (unsigned)ntohs(client_addr.sin_port));
 
             if (new_socket >= FD_SETSIZE) {
                 mb_tcp_logv(ctx, MB_TCP_LOG_WARN,
-                            "fd %d exceeds FD_SETSIZE, rejecting client", new_socket);
+                    "fd %d exceeds FD_SETSIZE, rejecting client", new_socket);
                 close(new_socket);
                 continue;
             }
@@ -383,7 +383,7 @@ static void *mb_tcp_client_thread(void *arg)
             if (mb_tcp_connect(&sock, ctx->cfg.bind_iface, ctx->cfg.remote_host, ctx->cfg.port,
                                ctx->cfg.connect_timeout_sec) == 0) {
                 mb_tcp_logv(ctx, MB_TCP_LOG_DEBUG, "connected to %s:%u", ctx->cfg.remote_host,
-                            (unsigned)ctx->cfg.port);
+                    (unsigned)ctx->cfg.port);
                 ctx->stream_sock = sock;
                 connected = 1;
                 mb_tcp_link_call(ctx, sock, 1);
@@ -392,8 +392,8 @@ static void *mb_tcp_client_thread(void *arg)
                 }
             } else {
                 mb_tcp_logv(ctx, MB_TCP_LOG_ERROR, "connect %s:%u failed, retry in %us",
-                            ctx->cfg.remote_host, (unsigned)ctx->cfg.port,
-                            ctx->cfg.connect_retry_sec);
+                    ctx->cfg.remote_host, (unsigned)ctx->cfg.port,
+                    ctx->cfg.connect_retry_sec);
                 if (ctx->cfg.on_error) {
                     ctx->cfg.on_error(ctx->cfg.userdata, 0);
                 }
@@ -431,7 +431,7 @@ static void *mb_tcp_client_thread(void *arg)
 }
 
 int mb_tcp_connect(int *sock_out, const char *bind_iface, const char *remote_host, uint16_t port,
-                   unsigned int timeout_sec)
+    unsigned int timeout_sec)
 {
     int yes = 1;
     struct sockaddr_in server_addr;
@@ -530,7 +530,7 @@ void mb_tcp_close(int *fd)
 }
 
 int mb_tcp_build_request_basis(mb_tcp_ctx_t *ctx, uint8_t modbus_uid, int function, int addr,
-                               uint16_t nb, uint8_t *req, size_t req_cap)
+    uint16_t nb, uint8_t *req, size_t req_cap)
 {
     if (!ctx || !req || req_cap < MODBUS_TCP_MIN_READ_REQ_LENGTH) {
         return -1;
@@ -568,8 +568,8 @@ int mb_tcp_build_request_basis(mb_tcp_ctx_t *ctx, uint8_t modbus_uid, int functi
 }
 
 int mb_tcp_build_fc06_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
-                               uint16_t addr, uint16_t value,
-                               uint8_t *req, size_t req_cap)
+    uint16_t addr, uint16_t value,
+    uint8_t *req, size_t req_cap)
 {
     if (!ctx || !req || req_cap < MODBUS_TCP_MIN_READ_REQ_LENGTH) {
         return -1;
@@ -584,16 +584,16 @@ int mb_tcp_build_fc06_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
     uint16_t tid = ctx->tid;
     pthread_mutex_unlock(&ctx->lock);
 
-    req[0]  = (uint8_t)(tid >> 8);
-    req[1]  = (uint8_t)(tid & 0xFFu);
-    req[2]  = 0x00u;
-    req[3]  = 0x00u;
-    req[4]  = 0x00u;
-    req[5]  = MODBUS_TCP_MBAP_LEN_STANDARD_REQ;
-    req[6]  = modbus_uid;
-    req[7]  = MODBUS_FUNC_WRITE_SINGLE_REGISTER;
-    req[8]  = (uint8_t)(addr >> 8);
-    req[9]  = (uint8_t)(addr & 0xFFu);
+    req[0] = (uint8_t)(tid >> 8);
+    req[1] = (uint8_t)(tid & 0xFFu);
+    req[2] = 0x00u;
+    req[3] = 0x00u;
+    req[4] = 0x00u;
+    req[5] = MODBUS_TCP_MBAP_LEN_STANDARD_REQ;
+    req[6] = modbus_uid;
+    req[7] = MODBUS_FUNC_WRITE_SINGLE_REGISTER;
+    req[8] = (uint8_t)(addr >> 8);
+    req[9] = (uint8_t)(addr & 0xFFu);
     req[10] = (uint8_t)(value >> 8);
     req[11] = (uint8_t)(value & 0xFFu);
 
@@ -601,18 +601,18 @@ int mb_tcp_build_fc06_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
 }
 
 int mb_tcp_build_fc16_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
-                               uint16_t addr, uint16_t num_registers,
-                               const uint16_t *values,
-                               uint8_t *req, size_t req_cap)
+    uint16_t addr, uint16_t num_registers,
+    const uint16_t *values,
+    uint8_t *req, size_t req_cap)
 {
     if (!ctx || !req || !values || num_registers == 0 ||
         num_registers > MODBUS_MAX_WRITE_REGISTERS) {
         return -1;
     }
 
-    uint8_t  byte_count = (uint8_t)(num_registers * 2u);
-    uint16_t mbap_len   = (uint16_t)(7u + (uint16_t)byte_count);
-    size_t   total_len  = MODBUS_TCP_MBAP_HEADER_LEN + (size_t)mbap_len;
+    uint8_t byte_count = (uint8_t)(num_registers * 2u);
+    uint16_t mbap_len = (uint16_t)(7u + (uint16_t)byte_count);
+    size_t total_len = MODBUS_TCP_MBAP_HEADER_LEN + (size_t)mbap_len;
 
     if (req_cap < total_len) {
         return -1;
@@ -627,23 +627,23 @@ int mb_tcp_build_fc16_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
     uint16_t tid = ctx->tid;
     pthread_mutex_unlock(&ctx->lock);
 
-    req[0]  = (uint8_t)(tid >> 8);
-    req[1]  = (uint8_t)(tid & 0xFFu);
-    req[2]  = 0x00u;
-    req[3]  = 0x00u;
-    req[4]  = (uint8_t)(mbap_len >> 8);
-    req[5]  = (uint8_t)(mbap_len & 0xFFu);
-    req[6]  = modbus_uid;
-    req[7]  = MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS;
-    req[8]  = (uint8_t)(addr >> 8);
-    req[9]  = (uint8_t)(addr & 0xFFu);
+    req[0] = (uint8_t)(tid >> 8);
+    req[1] = (uint8_t)(tid & 0xFFu);
+    req[2] = 0x00u;
+    req[3] = 0x00u;
+    req[4] = (uint8_t)(mbap_len >> 8);
+    req[5] = (uint8_t)(mbap_len & 0xFFu);
+    req[6] = modbus_uid;
+    req[7] = MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS;
+    req[8] = (uint8_t)(addr >> 8);
+    req[9] = (uint8_t)(addr & 0xFFu);
     req[10] = (uint8_t)(num_registers >> 8);
     req[11] = (uint8_t)(num_registers & 0xFFu);
     req[12] = byte_count;
 
     for (uint16_t i = 0u; i < num_registers; i++) {
         size_t offset = 13u + (size_t)(i * 2u);
-        req[offset]      = (uint8_t)(values[i] >> 8);
+        req[offset] = (uint8_t)(values[i] >> 8);
         req[offset + 1u] = (uint8_t)(values[i] & 0xFFu);
     }
 
@@ -651,7 +651,7 @@ int mb_tcp_build_fc16_request(mb_tcp_ctx_t *ctx, uint8_t modbus_uid,
 }
 
 int mb_tcp_parse_request(const uint8_t *request, size_t length, uint8_t *function_code,
-                         uint16_t *address, uint16_t *quantity)
+    uint16_t *address, uint16_t *quantity)
 {
     if (!request || !function_code || !address || !quantity) {
         return -1;
@@ -684,8 +684,8 @@ int mb_tcp_parse_request(const uint8_t *request, size_t length, uint8_t *functio
 }
 
 int mb_tcp_build_read_registers_response(uint16_t tid, uint8_t function_code, uint8_t unit_id,
-                                         const uint16_t *data, uint16_t quantity, uint8_t *response,
-                                         size_t response_cap)
+    const uint16_t *data, uint16_t quantity, uint8_t *response,
+    size_t response_cap)
 {
     if (!response || !data) {
         return -1;

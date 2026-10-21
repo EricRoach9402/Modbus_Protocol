@@ -32,7 +32,7 @@ typedef enum mb_rtu_log_level {
  * Optional log sink (vfprintf-style). @p userdata is the caller's context.
  */
 typedef void (*mb_rtu_logv_fn)(void *userdata, mb_rtu_log_level_t level,
-                               const char *fmt, va_list ap);
+    const char *fmt, va_list ap);
 
 /** Optional: notified when the serial link is opened (connected != 0) or closed. */
 typedef void (*mb_rtu_link_fn)(void *userdata, int fd, int connected);
@@ -48,9 +48,9 @@ typedef enum mb_rtu_parity {
  * For GPIO-driven transceivers use mb_rtu_tx_enable_fn instead.
  */
 typedef enum mb_rtu_rs485_mode {
-    MB_RTU_RS485_NONE = 0,           /**< Leave the driver's RS-485 settings untouched. */
-    MB_RTU_RS485_RTS_ON_SEND,        /**< TIOCSRS485: RTS asserted (high) while sending. */
-    MB_RTU_RS485_RTS_AFTER_SEND      /**< TIOCSRS485: RTS asserted after sending (active low). */
+    MB_RTU_RS485_NONE = 0, /**< Leave the driver's RS-485 settings untouched. */
+    MB_RTU_RS485_RTS_ON_SEND, /**< TIOCSRS485: RTS asserted (high) while sending. */
+    MB_RTU_RS485_RTS_AFTER_SEND /**< TIOCSRS485: RTS asserted after sending (active low). */
 } mb_rtu_rs485_mode_t;
 
 /**
@@ -61,18 +61,18 @@ typedef enum mb_rtu_rs485_mode {
 typedef void (*mb_rtu_tx_enable_fn)(void *userdata, int fd, int enable);
 
 typedef struct mb_rtu_serial_config {
-    const char *device;              /**< Serial device path, e.g. "/dev/ttyUSB0". */
-    uint32_t baud_rate;              /**< 0 = 9600. Supports common POSIX baud rates. */
-    uint8_t data_bits;               /**< 0 = 8. Supported values: 7 or 8. */
-    uint8_t stop_bits;               /**< 0 = 1. Supported values: 1 or 2. */
-    mb_rtu_parity_t parity;          /**< Default: MB_RTU_PARITY_NONE. */
+    const char *device; /**< Serial device path, e.g. "/dev/ttyUSB0". */
+    uint32_t baud_rate; /**< 0 = 9600. Supports common POSIX baud rates. */
+    uint8_t data_bits; /**< 0 = 8. Supported values: 7 or 8. */
+    uint8_t stop_bits; /**< 0 = 1. Supported values: 1 or 2. */
+    mb_rtu_parity_t parity; /**< Default: MB_RTU_PARITY_NONE. */
     /** Kernel RS-485 mode; open fails if the driver rejects TIOCSRS485. */
     mb_rtu_rs485_mode_t rs485_mode;
 } mb_rtu_serial_config_t;
 
 typedef struct mb_rtu_config {
     mb_rtu_serial_config_t serial;
-    uint32_t recv_timeout_ms;        /**< 0 = MODBUS_RTU_DEFAULT_TIMEOUT_MS. */
+    uint32_t recv_timeout_ms; /**< 0 = MODBUS_RTU_DEFAULT_TIMEOUT_MS. */
     void *userdata;
 
     mb_rtu_logv_fn logv;
@@ -94,7 +94,7 @@ typedef struct mb_rtu_ctx {
     pthread_mutex_t lock;
     mb_rtu_config_t cfg;
     int serial_fd;
-    int initialized;                 /**< Internal: nonzero between start and stop. */
+    int initialized; /**< Internal: nonzero between start and stop. */
 } mb_rtu_ctx_t;
 
 /**
@@ -130,7 +130,7 @@ uint32_t mb_rtu_t35_us(const mb_rtu_serial_config_t *serial);
  * Sentinel for optional RTU timing fields: explicitly disable the delay.
  * Leaving the field as 0 still means "use the library default".
  */
-#define MB_RTU_TIMING_DISABLED  UINT32_MAX
+#define MB_RTU_TIMING_DISABLED UINT32_MAX
 
 /**
  * @brief Resolve an optional timing config field.
@@ -149,11 +149,11 @@ uint32_t mb_rtu_effective_timing(uint32_t configured, uint32_t default_value);
  * @return total ADU byte length on success, -1 on error.
  */
 int mb_rtu_build_request_basis(uint8_t unit_id, int function, int addr,
-                               uint16_t nb, uint8_t *req, size_t req_cap);
+    uint16_t nb, uint8_t *req, size_t req_cap);
 
 /** Build a FC06 (Write Single Register) RTU ADU. */
 int mb_rtu_build_fc06_request(uint8_t unit_id, uint16_t addr, uint16_t value,
-                              uint8_t *req, size_t req_cap);
+    uint8_t *req, size_t req_cap);
 
 /**
  * Build a FC16 (Write Multiple Registers) RTU ADU.
@@ -162,22 +162,22 @@ int mb_rtu_build_fc06_request(uint8_t unit_id, uint16_t addr, uint16_t value,
  * @return total ADU byte length on success, -1 on error.
  */
 int mb_rtu_build_fc16_request(uint8_t unit_id, uint16_t addr, uint16_t num_registers,
-                              const uint16_t *values, uint8_t *req, size_t req_cap);
+    const uint16_t *values, uint8_t *req, size_t req_cap);
 
 /**
  * Parse a validated Modbus RTU request: reads FC, address, and quantity.
  * FC06 forces quantity = 1.
  */
 int mb_rtu_parse_request(const uint8_t *request, size_t length, uint8_t *function_code,
-                         uint16_t *address, uint16_t *quantity);
+    uint16_t *address, uint16_t *quantity);
 
 /**
  * Build FC03 / FC04 style read response: unit + FC + byte_count + register data + CRC.
  * @return total response length, or -1 on error.
  */
 int mb_rtu_build_read_registers_response(uint8_t function_code, uint8_t unit_id,
-                                         const uint16_t *data, uint16_t quantity,
-                                         uint8_t *response, size_t response_cap);
+    const uint16_t *data, uint16_t quantity,
+    uint8_t *response, size_t response_cap);
 
 #ifdef __cplusplus
 }

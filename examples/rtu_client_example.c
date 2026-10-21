@@ -11,14 +11,14 @@
 
 #include "modbus_rtu_client.h"
 
-#define SERIAL_DEVICE        "/dev/ttyUSB0"
-#define SERIAL_BAUD_RATE     9600u
-#define SERVER_UNIT_ID       1u
-#define RESPONSE_TIMEOUT_MS  1000u
-#define POLL_INTERVAL_SEC    2u
+#define SERIAL_DEVICE "/dev/ttyUSB0"
+#define SERIAL_BAUD_RATE 9600u
+#define SERVER_UNIT_ID 1u
+#define RESPONSE_TIMEOUT_MS 1000u
+#define POLL_INTERVAL_SEC 2u
 
-#define REG_TEMPERATURE      0x00u
-#define REG_SETPOINT         0x0Au
+#define REG_TEMPERATURE 0x00u
+#define REG_SETPOINT 0x0Au
 
 static volatile int g_running = 1;
 
@@ -29,14 +29,14 @@ static void handle_signal(int sig)
 }
 
 static void client_log(void *userdata, mb_rtu_log_level_t level,
-                       const char *fmt, va_list ap)
+    const char *fmt, va_list ap)
 {
     (void)userdata;
 
     static const char * const level_tag[] = {
         [MB_RTU_LOG_DEBUG] = "DEBUG",
-        [MB_RTU_LOG_INFO]  = "INFO ",
-        [MB_RTU_LOG_WARN]  = "WARN ",
+        [MB_RTU_LOG_INFO] = "INFO ",
+        [MB_RTU_LOG_WARN] = "WARN ",
         [MB_RTU_LOG_ERROR] = "ERROR",
     };
 
@@ -94,7 +94,7 @@ int main(void)
     int probe_rc = mb_rtu_client_probe_device(&client, REG_TEMPERATURE, 1u);
     if (probe_rc != MB_RTU_CLIENT_OK) {
         fprintf(stderr, "[ERROR] Device not responding on %s: %s (rc=%d)\n",
-                SERIAL_DEVICE, client_err_str(probe_rc), probe_rc);
+            SERIAL_DEVICE, client_err_str(probe_rc), probe_rc);
         mb_rtu_client_disconnect(&client);
         return 1;
     }
@@ -103,19 +103,19 @@ int main(void)
     int rc = mb_rtu_client_write_single_register(&client, REG_SETPOINT, setpoint);
     if (rc != MB_RTU_CLIENT_OK) {
         fprintf(stderr, "[INIT] Write setpoint failed: %s (rc=%d)\n",
-                client_err_str(rc), rc);
+            client_err_str(rc), rc);
     }
 
     while (g_running) {
         uint16_t temperature_raw = 0u;
         rc = mb_rtu_client_read_holding_registers(&client, REG_TEMPERATURE,
-                                                  1u, &temperature_raw);
+            1u, &temperature_raw);
         if (rc == MB_RTU_CLIENT_OK) {
             printf("[POLL] Temperature: %.1f C\n",
-                   (double)temperature_raw / 10.0);
+                (double)temperature_raw / 10.0);
         } else {
             fprintf(stderr, "[POLL] Read failed: %s (rc=%d)\n",
-                    client_err_str(rc), rc);
+                client_err_str(rc), rc);
         }
 
         sleep(POLL_INTERVAL_SEC);

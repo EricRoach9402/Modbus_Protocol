@@ -33,17 +33,17 @@
  *   6    Unit ID
  *   7+   PDU (function code + data)
  * ──────────────────────────────────────────────────────────────────────── */
-#define ADU_OFFSET_PROTO_HIGH       2u
-#define ADU_OFFSET_PROTO_LOW        3u
-#define ADU_OFFSET_LEN_HIGH         4u
-#define ADU_OFFSET_LEN_LOW          5u
-#define ADU_OFFSET_UNIT_ID          6u
-#define ADU_OFFSET_PDU              7u
+#define ADU_OFFSET_PROTO_HIGH 2u
+#define ADU_OFFSET_PROTO_LOW 3u
+#define ADU_OFFSET_LEN_HIGH 4u
+#define ADU_OFFSET_LEN_LOW 5u
+#define ADU_OFFSET_UNIT_ID 6u
+#define ADU_OFFSET_PDU 7u
 
 /* ── Logging helper ────────────────────────────────────────────────────── */
 
 static void srv_logv(mb_tcp_server_ctx_t *ctx, mb_tcp_log_level_t level,
-                     const char *fmt, ...)
+    const char *fmt, ...)
 {
     if (!ctx->cfg.logv) {
         return;
@@ -98,7 +98,7 @@ static int server_on_process(void *userdata, int client_fd)
     if (mbap_remaining < 2u ||
         mbap_remaining > (MODBUS_TCP_MAX_ADU_LENGTH - MODBUS_TCP_MBAP_HEADER_LEN)) {
         srv_logv(ctx, MB_TCP_LOG_WARN,
-                 "invalid MBAP length field: %u", (unsigned)mbap_remaining);
+            "invalid MBAP length field: %u", (unsigned)mbap_remaining);
         return -1;
     }
 
@@ -112,7 +112,7 @@ static int server_on_process(void *userdata, int client_fd)
     /* Non-zero Protocol ID is not Modbus: drop the frame without replying. */
     if (adu[ADU_OFFSET_PROTO_HIGH] != 0u || adu[ADU_OFFSET_PROTO_LOW] != 0u) {
         srv_logv(ctx, MB_TCP_LOG_WARN, "non-Modbus protocol id 0x%02X%02X ignored",
-                 (unsigned)adu[ADU_OFFSET_PROTO_HIGH], (unsigned)adu[ADU_OFFSET_PROTO_LOW]);
+            (unsigned)adu[ADU_OFFSET_PROTO_HIGH], (unsigned)adu[ADU_OFFSET_PROTO_LOW]);
         return 0;
     }
 
@@ -120,8 +120,8 @@ static int server_on_process(void *userdata, int client_fd)
     if (ctx->cfg.unit_id != (uint8_t)MB_TCP_SERVER_UNIT_ID_ANY &&
         unit_id != ctx->cfg.unit_id) {
         srv_logv(ctx, MB_TCP_LOG_WARN,
-                 "unit_id mismatch: received %u, expected %u",
-                 (unsigned)unit_id, (unsigned)ctx->cfg.unit_id);
+            "unit_id mismatch: received %u, expected %u",
+            (unsigned)unit_id, (unsigned)ctx->cfg.unit_id);
         return 0;
     }
 
@@ -135,11 +135,11 @@ static int server_on_process(void *userdata, int client_fd)
     };
     size_t pdu_len = (size_t)mbap_remaining - 1u;
     size_t resp_pdu_len = mb_pdu_handle_request(&handlers, adu + ADU_OFFSET_PDU, pdu_len,
-                                                resp + ADU_OFFSET_PDU);
+        resp + ADU_OFFSET_PDU);
 
     if (resp[ADU_OFFSET_PDU] & (uint8_t)MODBUS_EXCEPTION_FLAG) {
         srv_logv(ctx, MB_TCP_LOG_WARN, "FC%02X -> exception %u",
-                 (unsigned)adu[ADU_OFFSET_PDU], (unsigned)resp[ADU_OFFSET_PDU + 1u]);
+            (unsigned)adu[ADU_OFFSET_PDU], (unsigned)resp[ADU_OFFSET_PDU + 1u]);
     }
 
     uint16_t resp_mbap_len = (uint16_t)(1u + resp_pdu_len);

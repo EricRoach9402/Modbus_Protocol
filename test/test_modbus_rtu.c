@@ -59,15 +59,15 @@ static void test_request_builders(void)
 
     uint8_t req[MODBUS_RTU_MAX_ADU_LENGTH];
     int len = mb_rtu_build_request_basis(1u, MODBUS_FUNC_READ_HOLDING_REGISTERS,
-                                         0u, 10u, req, sizeof(req));
+        0u, 10u, req, sizeof(req));
     check("FC03 request length is 8", len == 8);
     check("FC03 request CRC validates", mb_rtu_validate_crc(req, (size_t)len) == 0);
     check("FC03 request matches known bytes",
-          len == 8 &&
-          req[0] == 0x01u && req[1] == 0x03u &&
-          req[2] == 0x00u && req[3] == 0x00u &&
-          req[4] == 0x00u && req[5] == 0x0Au &&
-          req[6] == 0xC5u && req[7] == 0xCDu);
+        len == 8 &&
+        req[0] == 0x01u && req[1] == 0x03u &&
+        req[2] == 0x00u && req[3] == 0x00u &&
+        req[4] == 0x00u && req[5] == 0x0Au &&
+        req[6] == 0xC5u && req[7] == 0xCDu);
 
     len = mb_rtu_build_fc06_request(1u, 0x000Au, 0x1234u, req, sizeof(req));
     check("FC06 request length is 8", len == 8);
@@ -90,17 +90,17 @@ static void test_parse_request(void)
     uint16_t qty = 0u;
 
     int len = mb_rtu_build_request_basis(1u, MODBUS_FUNC_READ_HOLDING_REGISTERS,
-                                         0x0010u, 5u, req, sizeof(req));
+        0x0010u, 5u, req, sizeof(req));
     int rc = mb_rtu_parse_request(req, (size_t)len, &fc, &addr, &qty);
     check("parse FC03 request", rc == 0);
     check("parse FC03 fields",
-          fc == MODBUS_FUNC_READ_HOLDING_REGISTERS && addr == 0x0010u && qty == 5u);
+        fc == MODBUS_FUNC_READ_HOLDING_REGISTERS && addr == 0x0010u && qty == 5u);
 
     len = mb_rtu_build_fc06_request(1u, 0x000Au, 0x2222u, req, sizeof(req));
     rc = mb_rtu_parse_request(req, (size_t)len, &fc, &addr, &qty);
     check("parse FC06 request", rc == 0);
     check("parse FC06 forces qty=1",
-          fc == MODBUS_FUNC_WRITE_SINGLE_REGISTER && addr == 0x000Au && qty == 1u);
+        fc == MODBUS_FUNC_WRITE_SINGLE_REGISTER && addr == 0x000Au && qty == 1u);
 }
 
 static void test_read_response_builder(void)
@@ -111,13 +111,13 @@ static void test_read_response_builder(void)
     uint8_t resp[MODBUS_RTU_MAX_ADU_LENGTH];
 
     int len = mb_rtu_build_read_registers_response(MODBUS_FUNC_READ_HOLDING_REGISTERS,
-                                                   1u, data, 2u, resp, sizeof(resp));
+        1u, data, 2u, resp, sizeof(resp));
     check("FC03 response length is 9", len == 9);
     check("FC03 response CRC validates", mb_rtu_validate_crc(resp, (size_t)len) == 0);
     check("FC03 response data is big-endian",
-          len == 9 && resp[2] == 4u &&
-          resp[3] == 0x12u && resp[4] == 0x34u &&
-          resp[5] == 0xABu && resp[6] == 0xCDu);
+        len == 9 && resp[2] == 4u &&
+        resp[3] == 0x12u && resp[4] == 0x34u &&
+        resp[5] == 0xABu && resp[6] == 0xCDu);
 }
 
 static void test_t35(void)
@@ -155,13 +155,13 @@ static void test_effective_timing(void)
     printf("\n-- Timing Field Resolution --\n");
 
     check("0 -> default value",
-          mb_rtu_effective_timing(0u, 30u) == 30u);
+        mb_rtu_effective_timing(0u, 30u) == 30u);
     check("DISABLED -> 0 (off)",
-          mb_rtu_effective_timing(MB_RTU_TIMING_DISABLED, 30u) == 0u);
+        mb_rtu_effective_timing(MB_RTU_TIMING_DISABLED, 30u) == 0u);
     check("explicit value kept",
-          mb_rtu_effective_timing(10000u, 30u) == 10000u);
+        mb_rtu_effective_timing(10000u, 30u) == 10000u);
     check("DISABLED with zero default still off",
-          mb_rtu_effective_timing(MB_RTU_TIMING_DISABLED, 0u) == 0u);
+        mb_rtu_effective_timing(MB_RTU_TIMING_DISABLED, 0u) == 0u);
 }
 
 /**
@@ -176,20 +176,20 @@ static void test_probe_device_guards(void)
     printf("\n-- mb_rtu_client_probe_device() Guards --\n");
 
     mb_rtu_client_ctx_t ctx = {0};
-    ctx.fd = -1;                 /* never opened; matches post-disconnect state */
+    ctx.fd = -1; /* never opened; matches post-disconnect state */
     ctx.cfg.unit_id = 1u;
 
     int rc = mb_rtu_client_probe_device(&ctx, 0u, 0u);
     check("qty=0 rejected client-side -> MB_RTU_CLIENT_ERR_ARG",
-          rc == MB_RTU_CLIENT_ERR_ARG);
+        rc == MB_RTU_CLIENT_ERR_ARG);
 
     rc = mb_rtu_client_probe_device(&ctx, 0u, MODBUS_MAX_READ_REGISTERS + 1u);
     check("qty > MODBUS_MAX_READ_REGISTERS rejected -> MB_RTU_CLIENT_ERR_ARG",
-          rc == MB_RTU_CLIENT_ERR_ARG);
+        rc == MB_RTU_CLIENT_ERR_ARG);
 
     rc = mb_rtu_client_probe_device(&ctx, 0u, 1u);
     check("valid qty on unopened ctx -> MB_RTU_CLIENT_ERR_NOT_CONNECTED",
-          rc == MB_RTU_CLIENT_ERR_NOT_CONNECTED);
+        rc == MB_RTU_CLIENT_ERR_NOT_CONNECTED);
 }
 
 /**
@@ -224,23 +224,23 @@ static void test_client_lifecycle(void)
 
     check("connect to pty succeeds", mb_rtu_client_connect(&ctx, &cfg) == 0);
     check("second connect on connected ctx is rejected",
-          mb_rtu_client_connect(&ctx, &cfg) != 0);
+        mb_rtu_client_connect(&ctx, &cfg) != 0);
     check("fd still open after rejected reconnect", ctx.fd >= 0);
 
     mb_rtu_client_ctx_t peer = {0};
     mb_rtu_client_config_t peer_cfg = cfg;
     peer_cfg.unit_id = 2u;
     check("second ctx on same device shares the fd",
-          mb_rtu_client_connect(&peer, &peer_cfg) == 0 && peer.fd == ctx.fd);
+        mb_rtu_client_connect(&peer, &peer_cfg) == 0 && peer.fd == ctx.fd);
 
     mb_rtu_client_disconnect(&ctx);
     mb_rtu_client_disconnect(&ctx);
     check("double disconnect is safe", ctx.initialized == 0 && ctx.fd < 0);
     check("shared fd stays open for remaining ctx",
-          fcntl(peer.fd, F_GETFD) != -1);
+        fcntl(peer.fd, F_GETFD) != -1);
 
     check("reconnect after disconnect (no memset) succeeds",
-          mb_rtu_client_connect(&ctx, &cfg) == 0);
+        mb_rtu_client_connect(&ctx, &cfg) == 0);
 
     char link_path[64];
     snprintf(link_path, sizeof(link_path), "/tmp/mb_rtu_test_link_%d", (int)getpid());
@@ -250,7 +250,7 @@ static void test_client_lifecycle(void)
         mb_rtu_client_config_t link_cfg = cfg;
         link_cfg.device = link_path;
         check("symlink to same device shares the fd",
-              mb_rtu_client_connect(&via_link, &link_cfg) == 0 && via_link.fd == ctx.fd);
+            mb_rtu_client_connect(&via_link, &link_cfg) == 0 && via_link.fd == ctx.fd);
         mb_rtu_client_disconnect(&via_link);
         unlink(link_path);
     } else {
@@ -329,7 +329,7 @@ static void test_many_shared_buses(void)
     mb_rtu_client_disconnect(&ctxs[0]);
     mb_rtu_client_config_t again_cfg = { .device = paths[0], .unit_id = 1u };
     check("reconnect after last disconnect reopens the device",
-          mb_rtu_client_connect(&ctxs[0], &again_cfg) == 0 && ctxs[0].fd >= 0);
+        mb_rtu_client_connect(&ctxs[0], &again_cfg) == 0 && ctxs[0].fd >= 0);
 
     for (int i = 0; i < MANY_DEVICES; i++) {
         mb_rtu_client_disconnect(&ctxs[i]);
@@ -444,7 +444,7 @@ static void test_response_deadline(void)
     uint64_t elapsed = now_ms() - start;
 
     check("slow-dripping response -> MB_RTU_CLIENT_ERR_TIMEOUT",
-          rc == MB_RTU_CLIENT_ERR_TIMEOUT);
+        rc == MB_RTU_CLIENT_ERR_TIMEOUT);
     check("timeout fires near the deadline, not per byte", elapsed < 500u);
 
     pthread_join(thread, NULL);
@@ -453,7 +453,7 @@ static void test_response_deadline(void)
 }
 
 static int resync_on_read(uint8_t function_code, uint16_t addr, uint16_t qty,
-                          uint16_t *out, void *userdata)
+    uint16_t *out, void *userdata)
 {
     (void)function_code;
     (void)userdata;
@@ -484,7 +484,7 @@ static void test_server_resync(void)
     mb_rtu_server_stop(&srv);
     mb_rtu_server_stop(&srv);
     check("stop after failed start and double stop are safe",
-          srv.transport.initialized == 0);
+        srv.transport.initialized == 0);
 
     char path[64];
     int master = open_test_pty(path, sizeof(path));
@@ -511,7 +511,7 @@ static void test_server_resync(void)
 
     uint8_t req[MODBUS_RTU_MIN_REQ_LENGTH];
     int req_len = mb_rtu_build_request_basis(1u, MODBUS_FUNC_READ_HOLDING_REGISTERS,
-                                             0x0005u, 1u, req, sizeof(req));
+        0x0005u, 1u, req, sizeof(req));
     memcpy(stream + stream_len, req, (size_t)req_len);
     stream_len += (size_t)req_len;
 
@@ -520,9 +520,9 @@ static void test_server_resync(void)
              read_with_timeout(master, resp, sizeof(resp), 1000u) == 0;
     check("request after foreign response is answered", ok);
     check("resynced response is valid",
-          ok && mb_rtu_validate_crc(resp, sizeof(resp)) == 0 &&
-          resp[0] == 0x01u && resp[1] == 0x03u &&
-          resp[3] == 0x10u && resp[4] == 0x05u);
+        ok && mb_rtu_validate_crc(resp, sizeof(resp)) == 0 &&
+        resp[0] == 0x01u && resp[1] == 0x03u &&
+        resp[3] == 0x10u && resp[4] == 0x05u);
 
     /* A corrupted request (bad CRC) followed by a good one. */
     uint8_t corrupt[MODBUS_RTU_MIN_REQ_LENGTH * 2u];
@@ -532,7 +532,7 @@ static void test_server_resync(void)
     ok = write(master, corrupt, sizeof(corrupt)) == (ssize_t)sizeof(corrupt) &&
          read_with_timeout(master, resp, sizeof(resp), 1000u) == 0;
     check("request after CRC-corrupted frame is answered",
-          ok && mb_rtu_validate_crc(resp, sizeof(resp)) == 0);
+        ok && mb_rtu_validate_crc(resp, sizeof(resp)) == 0);
 
     mb_rtu_server_stop(&srv);
     mb_rtu_server_stop(&srv);
@@ -598,7 +598,7 @@ static uint16_t e2e_regs[E2E_BANK_SIZE];
 static uint8_t e2e_coils[E2E_BANK_SIZE];
 
 static int e2e_read(uint8_t function_code, uint16_t addr, uint16_t qty,
-                    uint16_t *out, void *userdata)
+    uint16_t *out, void *userdata)
 {
     (void)userdata;
     if ((uint32_t)addr + qty > E2E_BANK_SIZE) {
@@ -606,7 +606,7 @@ static int e2e_read(uint8_t function_code, uint16_t addr, uint16_t qty,
     }
     for (uint16_t i = 0u; i < qty; i++) {
         out[i] = (uint16_t)(e2e_regs[addr + i] +
-                            ((function_code == MODBUS_FUNC_READ_INPUT_REGISTERS) ? 1u : 0u));
+            ((function_code == MODBUS_FUNC_READ_INPUT_REGISTERS) ? 1u : 0u));
     }
     return 0;
 }
@@ -622,7 +622,7 @@ static int e2e_write(uint16_t addr, uint16_t qty, const uint16_t *data, void *us
 }
 
 static int e2e_read_bits(uint8_t function_code, uint16_t addr, uint16_t qty,
-                         uint8_t *out, void *userdata)
+    uint8_t *out, void *userdata)
 {
     (void)userdata;
     if ((uint32_t)addr + qty > E2E_BANK_SIZE) {
@@ -755,50 +755,50 @@ static void test_rtu_end_to_end(void)
     static const uint16_t values[3] = { 0x1111u, 0x2222u, 0x3333u };
     uint16_t regs[3] = {0u, 0u, 0u};
     check("FC16 write 3 registers",
-          mb_rtu_client_write_multiple_registers(cli, 10u, 3u, values) == MB_RTU_CLIENT_OK);
+        mb_rtu_client_write_multiple_registers(cli, 10u, 3u, values) == MB_RTU_CLIENT_OK);
     check("FC03 read back",
-          mb_rtu_client_read_holding_registers(cli, 10u, 3u, regs) == MB_RTU_CLIENT_OK &&
-          memcmp(regs, values, sizeof(values)) == 0);
+        mb_rtu_client_read_holding_registers(cli, 10u, 3u, regs) == MB_RTU_CLIENT_OK &&
+        memcmp(regs, values, sizeof(values)) == 0);
     check("FC06 write single register",
-          mb_rtu_client_write_single_register(cli, 11u, 0xBEEFu) == MB_RTU_CLIENT_OK);
+        mb_rtu_client_write_single_register(cli, 11u, 0xBEEFu) == MB_RTU_CLIENT_OK);
     check("FC04 read input registers (holding + 1)",
-          mb_rtu_client_read_input_registers(cli, 11u, 1u, regs) == MB_RTU_CLIENT_OK &&
-          regs[0] == 0xBEF0u);
+        mb_rtu_client_read_input_registers(cli, 11u, 1u, regs) == MB_RTU_CLIENT_OK &&
+        regs[0] == 0xBEF0u);
 
     static const uint8_t pattern[10] = { 1, 1, 0, 1, 0, 0, 0, 1, 1, 0 };
     uint8_t bits[16];
     check("FC15 write 10 coils",
-          mb_rtu_client_write_multiple_coils(cli, 3u, 10u, pattern) == MB_RTU_CLIENT_OK);
+        mb_rtu_client_write_multiple_coils(cli, 3u, 10u, pattern) == MB_RTU_CLIENT_OK);
     check("FC05 write coil 4 ON",
-          mb_rtu_client_write_single_coil(cli, 4u, 1u) == MB_RTU_CLIENT_OK);
+        mb_rtu_client_write_single_coil(cli, 4u, 1u) == MB_RTU_CLIENT_OK);
     memset(bits, 0xAA, sizeof(bits));
     check("FC01 read back coils",
-          mb_rtu_client_read_coils(cli, 3u, 10u, bits) == MB_RTU_CLIENT_OK &&
-          bits[0] == 1u && bits[1] == 1u && bits[2] == 0u && bits[7] == 1u && bits[9] == 0u);
+        mb_rtu_client_read_coils(cli, 3u, 10u, bits) == MB_RTU_CLIENT_OK &&
+        bits[0] == 1u && bits[1] == 1u && bits[2] == 0u && bits[7] == 1u && bits[9] == 0u);
     check("FC02 read discrete inputs",
-          mb_rtu_client_read_discrete_inputs(cli, 0u, 4u, bits) == MB_RTU_CLIENT_OK &&
-          bits[0] == 1u && bits[1] == 0u && bits[2] == 1u && bits[3] == 0u);
+        mb_rtu_client_read_discrete_inputs(cli, 0u, 4u, bits) == MB_RTU_CLIENT_OK &&
+        bits[0] == 1u && bits[1] == 0u && bits[2] == 1u && bits[3] == 0u);
     check("FC01 out-of-range -> ILLEGAL_DATA_ADDRESS",
-          mb_rtu_client_read_coils(cli, 60u, 8u, bits) == MODBUS_EX_ILLEGAL_DATA_ADDRESS);
+        mb_rtu_client_read_coils(cli, 60u, 8u, bits) == MODBUS_EX_ILLEGAL_DATA_ADDRESS);
 
     mb_rtu_client_set_unit_id(cli, MODBUS_RTU_BROADCAST_ADDRESS);
     check("broadcast read rejected client-side",
-          mb_rtu_client_read_coils(cli, 0u, 1u, bits) == MB_RTU_CLIENT_ERR_ARG);
+        mb_rtu_client_read_coils(cli, 0u, 1u, bits) == MB_RTU_CLIENT_ERR_ARG);
     check("broadcast FC05 returns OK without a reply",
-          mb_rtu_client_write_single_coil(cli, 30u, 1u) == MB_RTU_CLIENT_OK);
+        mb_rtu_client_write_single_coil(cli, 30u, 1u) == MB_RTU_CLIENT_OK);
     mb_rtu_client_set_unit_id(cli, 5u);
     check("unknown unit id -> TIMEOUT",
-          mb_rtu_client_read_holding_registers(cli, 0u, 1u, regs) == MB_RTU_CLIENT_ERR_TIMEOUT);
+        mb_rtu_client_read_holding_registers(cli, 0u, 1u, regs) == MB_RTU_CLIENT_ERR_TIMEOUT);
     mb_rtu_client_set_unit_id(cli, 1u);
     check("broadcast write executed by server; unit id restored without reconnect",
-          mb_rtu_client_read_coils(cli, 30u, 1u, bits) == MB_RTU_CLIENT_OK && bits[0] == 1u);
+        mb_rtu_client_read_coils(cli, 30u, 1u, bits) == MB_RTU_CLIENT_OK && bits[0] == 1u);
 
     check("client TX-enable hook toggled around every frame",
-          client_tx.on_count > 0 && client_tx.on_count == client_tx.off_count &&
-          client_tx.level == 0);
+        client_tx.on_count > 0 && client_tx.on_count == client_tx.off_count &&
+        client_tx.level == 0);
     check("server TX-enable hook toggled around every response",
-          server_tx.on_count > 0 && server_tx.on_count == server_tx.off_count &&
-          server_tx.level == 0);
+        server_tx.on_count > 0 && server_tx.on_count == server_tx.off_count &&
+        server_tx.level == 0);
 
     e2e_teardown(&bench);
 
@@ -809,13 +809,13 @@ static void test_rtu_end_to_end(void)
         return;
     }
     check("FC06 with local echo on both sides",
-          mb_rtu_client_write_single_register(&bench.client, 5u, 0x0505u) == MB_RTU_CLIENT_OK);
+        mb_rtu_client_write_single_register(&bench.client, 5u, 0x0505u) == MB_RTU_CLIENT_OK);
     check("FC03 with local echo on both sides",
-          mb_rtu_client_read_holding_registers(&bench.client, 5u, 1u, regs) ==
-          MB_RTU_CLIENT_OK && regs[0] == 0x0505u);
+        mb_rtu_client_read_holding_registers(&bench.client, 5u, 1u, regs) ==
+        MB_RTU_CLIENT_OK && regs[0] == 0x0505u);
     check("server did not re-execute its own echoed response",
-          mb_rtu_client_read_holding_registers(&bench.client, 5u, 1u, regs) ==
-          MB_RTU_CLIENT_OK);
+        mb_rtu_client_read_holding_registers(&bench.client, 5u, 1u, regs) ==
+        MB_RTU_CLIENT_OK);
     e2e_teardown(&bench);
 }
 
@@ -838,11 +838,11 @@ static void test_rs485_mode(void)
         .rs485_mode = MB_RTU_RS485_RTS_ON_SEND,
     };
     check("RS-485 mode on a non-RS-485 driver fails connect",
-          mb_rtu_client_connect(&ctx, &cfg) != 0);
+        mb_rtu_client_connect(&ctx, &cfg) != 0);
 
     cfg.rs485_mode = MB_RTU_RS485_NONE;
     check("same device without RS-485 mode connects",
-          mb_rtu_client_connect(&ctx, &cfg) == 0);
+        mb_rtu_client_connect(&ctx, &cfg) == 0);
     mb_rtu_client_disconnect(&ctx);
     close(master);
 }
@@ -869,7 +869,7 @@ int main(void)
 
     printf("\n==========================================\n");
     printf("  Results:  %d passed  |  %d failed\n",
-           g_pass_count, g_fail_count);
+        g_pass_count, g_fail_count);
     printf("==========================================\n\n");
 
     return (g_fail_count == 0) ? 0 : 1;

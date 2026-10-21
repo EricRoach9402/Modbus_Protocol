@@ -24,18 +24,18 @@
 #include "modbus_pdu.h"
 #include "modbus_rtu_client.h"
 
-#define DEFAULT_RESPONSE_TIMEOUT_MS  MODBUS_RTU_DEFAULT_TIMEOUT_MS
+#define DEFAULT_RESPONSE_TIMEOUT_MS MODBUS_RTU_DEFAULT_TIMEOUT_MS
 
-#define RTU_OFFSET_UNIT_ID        0u
-#define RTU_OFFSET_FC             1u
-#define RTU_OFFSET_PDU            1u
-#define RTU_READ_BYTE_COUNT_OFF   2u
+#define RTU_OFFSET_UNIT_ID 0u
+#define RTU_OFFSET_FC 1u
+#define RTU_OFFSET_PDU 1u
+#define RTU_READ_BYTE_COUNT_OFF 2u
 
-#define RTU_EXCEPTION_LEN         5u
-#define RTU_WRITE_RESPONSE_LEN    8u
-#define RTU_IO_FRAME_ERROR       (-10)
-#define RTU_IO_CRC_ERROR         (-11)
-#define RTU_IO_UNIT_ID_ERROR     (-12)
+#define RTU_EXCEPTION_LEN 5u
+#define RTU_WRITE_RESPONSE_LEN 8u
+#define RTU_IO_FRAME_ERROR (-10)
+#define RTU_IO_CRC_ERROR (-11)
+#define RTU_IO_UNIT_ID_ERROR (-12)
 
 /* -- Shared serial-bus registry ------------------------------------------ */
 
@@ -81,14 +81,14 @@ static uint8_t effective_stop_bits(uint8_t stop_bits)
 static uint32_t effective_handoff_silence_ms(const mb_rtu_client_ctx_t *ctx)
 {
     return mb_rtu_effective_timing(ctx->cfg.bus_handoff_silence_ms,
-                                   MB_RTU_CLIENT_DEFAULT_HANDOFF_SILENCE_MS);
+        MB_RTU_CLIENT_DEFAULT_HANDOFF_SILENCE_MS);
 }
 
 /** Caller must hold the shared bus mutex (t35_us is set at port open). */
 static uint32_t effective_inter_frame_us(const mb_rtu_client_ctx_t *ctx)
 {
     return mb_rtu_effective_timing(ctx->cfg.inter_frame_delay_us,
-                                   ctx->shared_bus->t35_us);
+        ctx->shared_bus->t35_us);
 }
 
 /** Canonical registry key: realpath() when resolvable, else the path verbatim. */
@@ -116,7 +116,7 @@ static mb_rtu_shared_bus_t *find_bus_locked(const char *key)
 }
 
 static bool bus_settings_match(const mb_rtu_shared_bus_t *bus,
-                               const mb_rtu_serial_config_t *serial)
+    const mb_rtu_serial_config_t *serial)
 {
     return bus->baud_rate == effective_baud_rate(serial->baud_rate) &&
            bus->data_bits == effective_data_bits(serial->data_bits) &&
@@ -127,7 +127,7 @@ static bool bus_settings_match(const mb_rtu_shared_bus_t *bus,
 
 /** Open the port and link a new bus record.  Caller must hold the registry lock. */
 static mb_rtu_shared_bus_t *open_bus_locked(const char *key,
-                                            const mb_rtu_serial_config_t *serial)
+    const mb_rtu_serial_config_t *serial)
 {
     mb_rtu_shared_bus_t *bus = calloc(1u, sizeof(*bus));
     int fd = -1;
@@ -230,7 +230,7 @@ static void sleep_us(uint64_t us)
  * Caller must hold bus->mutex.
  */
 static void wait_bus_silence(mb_rtu_shared_bus_t *bus, uint8_t unit_id,
-                             uint32_t inter_frame_us, uint32_t handoff_ms)
+    uint32_t inter_frame_us, uint32_t handoff_ms)
 {
     struct timespec now;
     uint64_t required_us = inter_frame_us;
@@ -267,7 +267,7 @@ static void mark_bus_transaction_done(mb_rtu_shared_bus_t *bus, uint8_t unit_id)
 /* -- Logging / I/O helpers ----------------------------------------------- */
 
 static void cli_logv(mb_rtu_client_ctx_t *ctx, mb_rtu_log_level_t level,
-                     const char *fmt, ...)
+    const char *fmt, ...)
 {
     if (!ctx->cfg.logv) {
         return;
@@ -280,7 +280,7 @@ static void cli_logv(mb_rtu_client_ctx_t *ctx, mb_rtu_log_level_t level,
 }
 
 static void format_hex_string(const uint8_t *buf, size_t len,
-                              char *out, size_t out_cap)
+    char *out, size_t out_cap)
 {
     size_t pos = 0u;
 
@@ -291,7 +291,7 @@ static void format_hex_string(const uint8_t *buf, size_t len,
     out[0] = '\0';
     for (size_t i = 0u; i < len && (pos + 3u) < out_cap; i++) {
         int n = snprintf(out + pos, out_cap - pos, "%02X%s",
-                         buf[i], (i + 1u < len) ? " " : "");
+            buf[i], (i + 1u < len) ? " " : "");
         if (n < 0) {
             break;
         }
@@ -300,8 +300,8 @@ static void format_hex_string(const uint8_t *buf, size_t len,
 }
 
 static void log_transaction_failure(mb_rtu_client_ctx_t *ctx, int err, uint8_t unit_id,
-                                    const uint8_t *req, size_t req_len,
-                                    const uint8_t *resp, size_t resp_len)
+    const uint8_t *req, size_t req_len,
+    const uint8_t *resp, size_t resp_len)
 {
     char tx_hex[MODBUS_RTU_MAX_ADU_LENGTH * 3u];
     char rx_hex[MODBUS_RTU_MAX_ADU_LENGTH * 3u];
@@ -309,8 +309,8 @@ static void log_transaction_failure(mb_rtu_client_ctx_t *ctx, int err, uint8_t u
     format_hex_string(req, req_len, tx_hex, sizeof(tx_hex));
     format_hex_string(resp, resp_len, rx_hex, sizeof(rx_hex));
     cli_logv(ctx, MB_RTU_LOG_WARN,
-             "uid=%u transaction failed (err=%d): tx[%zu]={%s} rx[%zu]={%s}",
-             (unsigned)unit_id, err, req_len, tx_hex, resp_len, rx_hex);
+        "uid=%u transaction failed (err=%d): tx[%zu]={%s} rx[%zu]={%s}",
+        (unsigned)unit_id, err, req_len, tx_hex, resp_len, rx_hex);
 }
 
 static uint64_t monotonic_us(void)
@@ -459,8 +459,8 @@ static void bus_transaction_begin(mb_rtu_client_ctx_t *ctx)
 {
     pthread_mutex_lock(&ctx->shared_bus->mutex);
     wait_bus_silence(ctx->shared_bus, ctx->cfg.unit_id,
-                     effective_inter_frame_us(ctx),
-                     effective_handoff_silence_ms(ctx));
+        effective_inter_frame_us(ctx),
+        effective_handoff_silence_ms(ctx));
 }
 
 static void bus_transaction_end(mb_rtu_client_ctx_t *ctx)
@@ -477,7 +477,7 @@ static void bus_transaction_end(mb_rtu_client_ctx_t *ctx)
  * @return 0, -1, -2 (timeout) or RTU_IO_* error.
  */
 static int recv_response(mb_rtu_client_ctx_t *ctx, uint8_t unit_id, uint8_t expected_fc,
-                         uint8_t *buf, size_t *total_len)
+    uint8_t *buf, size_t *total_len)
 {
     uint64_t deadline_us = response_deadline_us(ctx);
     size_t frame_len;
@@ -533,7 +533,7 @@ static int recv_response(mb_rtu_client_ctx_t *ctx, uint8_t unit_id, uint8_t expe
  *         MB_RTU_CLIENT_ERR_* code.
  */
 static int transact(mb_rtu_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len,
-                    uint8_t *resp)
+    uint8_t *resp)
 {
     uint8_t req[MODBUS_RTU_MAX_ADU_LENGTH];
     uint8_t echo[MODBUS_RTU_MAX_ADU_LENGTH];
@@ -576,7 +576,7 @@ static int transact(mb_rtu_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len
             bus_transaction_end(ctx);
             pthread_mutex_unlock(&ctx->lock);
             cli_logv(ctx, MB_RTU_LOG_ERROR, "FC%02X local echo missing or corrupted",
-                     (unsigned)fc);
+                (unsigned)fc);
             return MB_RTU_CLIENT_ERR_TRANSPORT;
         }
     }
@@ -598,10 +598,10 @@ static int transact(mb_rtu_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len
     }
 
     rc = mb_pdu_check_response(pdu, resp + RTU_OFFSET_PDU,
-                               resp_len - RTU_OFFSET_PDU - MODBUS_RTU_CRC_LEN);
+        resp_len - RTU_OFFSET_PDU - MODBUS_RTU_CRC_LEN);
     if (rc == MB_PDU_ERR_FRAME) {
         log_transaction_failure(ctx, MB_RTU_CLIENT_ERR_FRAME, unit_id,
-                                req, req_len, resp, resp_len);
+            req, req_len, resp, resp_len);
         return MB_RTU_CLIENT_ERR_FRAME;
     }
     if (rc > 0) {
@@ -611,7 +611,7 @@ static int transact(mb_rtu_client_ctx_t *ctx, const uint8_t *pdu, size_t pdu_len
 }
 
 static int read_registers(mb_rtu_client_ctx_t *ctx, uint8_t fc,
-                          uint16_t addr, uint16_t qty, uint16_t *out)
+    uint16_t addr, uint16_t qty, uint16_t *out)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_RTU_MAX_ADU_LENGTH];
@@ -629,7 +629,7 @@ static int read_registers(mb_rtu_client_ctx_t *ctx, uint8_t fc,
 }
 
 static int read_bits(mb_rtu_client_ctx_t *ctx, uint8_t fc,
-                     uint16_t addr, uint16_t qty, uint8_t *out)
+    uint16_t addr, uint16_t qty, uint8_t *out)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_RTU_MAX_ADU_LENGTH];
@@ -722,33 +722,33 @@ int mb_rtu_client_set_unit_id(mb_rtu_client_ctx_t *ctx, uint8_t unit_id)
 }
 
 int mb_rtu_client_read_holding_registers(mb_rtu_client_ctx_t *ctx,
-                                         uint16_t addr, uint16_t qty,
-                                         uint16_t *out)
+    uint16_t addr, uint16_t qty,
+    uint16_t *out)
 {
     return read_registers(ctx, MODBUS_FUNC_READ_HOLDING_REGISTERS, addr, qty, out);
 }
 
 int mb_rtu_client_read_input_registers(mb_rtu_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty,
-                                       uint16_t *out)
+    uint16_t addr, uint16_t qty,
+    uint16_t *out)
 {
     return read_registers(ctx, MODBUS_FUNC_READ_INPUT_REGISTERS, addr, qty, out);
 }
 
 int mb_rtu_client_read_coils(mb_rtu_client_ctx_t *ctx,
-                             uint16_t addr, uint16_t qty, uint8_t *out)
+    uint16_t addr, uint16_t qty, uint8_t *out)
 {
     return read_bits(ctx, MODBUS_FUNC_READ_COILS, addr, qty, out);
 }
 
 int mb_rtu_client_read_discrete_inputs(mb_rtu_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty, uint8_t *out)
+    uint16_t addr, uint16_t qty, uint8_t *out)
 {
     return read_bits(ctx, MODBUS_FUNC_READ_DISCRETE_INPUTS, addr, qty, out);
 }
 
 int mb_rtu_client_write_single_register(mb_rtu_client_ctx_t *ctx,
-                                        uint16_t addr, uint16_t value)
+    uint16_t addr, uint16_t value)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_RTU_MAX_ADU_LENGTH];
@@ -758,12 +758,12 @@ int mb_rtu_client_write_single_register(mb_rtu_client_ctx_t *ctx,
     }
 
     size_t pdu_len = mb_pdu_build_write_single(pdu, MODBUS_FUNC_WRITE_SINGLE_REGISTER,
-                                               addr, value);
+        addr, value);
     return transact(ctx, pdu, pdu_len, resp);
 }
 
 int mb_rtu_client_write_single_coil(mb_rtu_client_ctx_t *ctx,
-                                    uint16_t addr, uint8_t value)
+    uint16_t addr, uint8_t value)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_RTU_MAX_ADU_LENGTH];
@@ -773,13 +773,13 @@ int mb_rtu_client_write_single_coil(mb_rtu_client_ctx_t *ctx,
     }
 
     size_t pdu_len = mb_pdu_build_write_single(pdu, MODBUS_FUNC_WRITE_SINGLE_COIL, addr,
-                                               value ? MODBUS_COIL_ON : MODBUS_COIL_OFF);
+        value ? MODBUS_COIL_ON : MODBUS_COIL_OFF);
     return transact(ctx, pdu, pdu_len, resp);
 }
 
 int mb_rtu_client_write_multiple_registers(mb_rtu_client_ctx_t *ctx,
-                                           uint16_t addr, uint16_t qty,
-                                           const uint16_t *data)
+    uint16_t addr, uint16_t qty,
+    const uint16_t *data)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_RTU_MAX_ADU_LENGTH];
@@ -793,8 +793,8 @@ int mb_rtu_client_write_multiple_registers(mb_rtu_client_ctx_t *ctx,
 }
 
 int mb_rtu_client_write_multiple_coils(mb_rtu_client_ctx_t *ctx,
-                                       uint16_t addr, uint16_t qty,
-                                       const uint8_t *values)
+    uint16_t addr, uint16_t qty,
+    const uint8_t *values)
 {
     uint8_t pdu[MODBUS_MAX_PDU_LENGTH];
     uint8_t resp[MODBUS_RTU_MAX_ADU_LENGTH];
@@ -808,7 +808,7 @@ int mb_rtu_client_write_multiple_coils(mb_rtu_client_ctx_t *ctx,
 }
 
 int mb_rtu_client_probe_device(mb_rtu_client_ctx_t *ctx,
-                               uint16_t addr, uint16_t qty)
+    uint16_t addr, uint16_t qty)
 {
     uint16_t probe_buf[MODBUS_MAX_READ_REGISTERS];
 

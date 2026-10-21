@@ -19,15 +19,15 @@
 #include "modbus_pdu.h"
 #include "modbus_rtu_server.h"
 
-#define RTU_OFFSET_UNIT_ID        0u
-#define RTU_OFFSET_FC             1u
-#define RTU_OFFSET_PDU            1u
+#define RTU_OFFSET_UNIT_ID 0u
+#define RTU_OFFSET_FC 1u
+#define RTU_OFFSET_PDU 1u
 #define RTU_OFFSET_WRITE_BYTE_CNT 6u
 
-#define RTU_IO_FRAME_ERROR       (-10)
+#define RTU_IO_FRAME_ERROR (-10)
 
 static void srv_logv(mb_rtu_server_ctx_t *ctx, mb_rtu_log_level_t level,
-                     const char *fmt, ...)
+    const char *fmt, ...)
 {
     if (!ctx->cfg.logv) {
         return;
@@ -113,7 +113,7 @@ static int read_available_bytes(mb_rtu_server_ctx_t *ctx, int fd, uint64_t now_u
 {
     while (ctx->rx_len < sizeof(ctx->rx_buffer)) {
         ssize_t n = read(fd, ctx->rx_buffer + ctx->rx_len,
-                         sizeof(ctx->rx_buffer) - ctx->rx_len);
+            sizeof(ctx->rx_buffer) - ctx->rx_len);
 
         if (n > 0) {
             ctx->rx_len += (size_t)n;
@@ -138,7 +138,7 @@ static int read_available_bytes(mb_rtu_server_ctx_t *ctx, int fd, uint64_t now_u
 }
 
 static int get_complete_request_len(const uint8_t *adu, size_t rx_len,
-                                    size_t adu_cap, size_t *total_len)
+    size_t adu_cap, size_t *total_len)
 {
     if (rx_len < 2u) {
         return 0;
@@ -192,8 +192,8 @@ static void drop_rx_bytes(mb_rtu_server_ctx_t *ctx, size_t count)
  * @return 1 with @p adu filled, 0 if more bytes are needed.
  */
 static int extract_request_frame(mb_rtu_server_ctx_t *ctx,
-                                 uint8_t *adu, size_t adu_cap,
-                                 size_t *total_len)
+    uint8_t *adu, size_t adu_cap,
+    size_t *total_len)
 {
     size_t frame_len = 0u;
     size_t dropped = 0u;
@@ -201,7 +201,7 @@ static int extract_request_frame(mb_rtu_server_ctx_t *ctx,
 
     for (;;) {
         rc = get_complete_request_len(ctx->rx_buffer, ctx->rx_len,
-                                      sizeof(ctx->rx_buffer), &frame_len);
+            sizeof(ctx->rx_buffer), &frame_len);
         if (rc == 0) {
             break;
         }
@@ -287,7 +287,7 @@ static void discard_echo(mb_rtu_server_ctx_t *ctx, int fd, size_t len)
         uint64_t now_us = current_time_us();
         if (now_us >= deadline_us) {
             srv_logv(ctx, MB_RTU_LOG_WARN, "local echo incomplete: %zu of %zu bytes",
-                     got, len);
+                got, len);
             return;
         }
 
@@ -358,8 +358,8 @@ static int server_on_process(void *userdata, int serial_fd)
 
     if (!unit_id_matches(ctx, unit_id)) {
         srv_logv(ctx, MB_RTU_LOG_DEBUG,
-                 "unit_id mismatch: received %u, expected %u",
-                 (unsigned)unit_id, (unsigned)ctx->cfg.unit_id);
+            "unit_id mismatch: received %u, expected %u",
+            (unsigned)unit_id, (unsigned)ctx->cfg.unit_id);
         return 0;
     }
 
@@ -376,7 +376,7 @@ static int server_on_process(void *userdata, int serial_fd)
     };
     size_t pdu_len = total_len - RTU_OFFSET_PDU - MODBUS_RTU_CRC_LEN;
     size_t resp_pdu_len = mb_pdu_handle_request(&handlers, adu + RTU_OFFSET_PDU, pdu_len,
-                                                resp + RTU_OFFSET_PDU);
+        resp + RTU_OFFSET_PDU);
 
     if (is_broadcast) {
         return 0;

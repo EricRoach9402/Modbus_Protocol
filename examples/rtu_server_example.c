@@ -14,14 +14,14 @@
 
 #include "modbus_rtu_server.h"
 
-#define SERIAL_DEVICE      "/dev/ttyUSB0"
-#define SERIAL_BAUD_RATE   9600u
-#define SERVER_UNIT_ID     1u
+#define SERIAL_DEVICE "/dev/ttyUSB0"
+#define SERIAL_BAUD_RATE 9600u
+#define SERVER_UNIT_ID 1u
 
-#define REG_TEMPERATURE    0x00u
-#define REG_STATUS         0x01u
-#define REG_SETPOINT       0x0Au
-#define REG_BANK_SIZE      32u
+#define REG_TEMPERATURE 0x00u
+#define REG_STATUS 0x01u
+#define REG_SETPOINT 0x0Au
+#define REG_BANK_SIZE 32u
 
 typedef struct {
     uint16_t reg_bank[REG_BANK_SIZE];
@@ -37,14 +37,14 @@ static void handle_signal(int sig)
 }
 
 static void server_log(void *userdata, mb_rtu_log_level_t level,
-                       const char *fmt, va_list ap)
+    const char *fmt, va_list ap)
 {
     (void)userdata;
 
     static const char * const level_tag[] = {
         [MB_RTU_LOG_DEBUG] = "DEBUG",
-        [MB_RTU_LOG_INFO]  = "INFO ",
-        [MB_RTU_LOG_WARN]  = "WARN ",
+        [MB_RTU_LOG_INFO] = "INFO ",
+        [MB_RTU_LOG_WARN] = "WARN ",
         [MB_RTU_LOG_ERROR] = "ERROR",
     };
 
@@ -54,7 +54,7 @@ static void server_log(void *userdata, mb_rtu_log_level_t level,
 }
 
 static int on_read(uint8_t function_code, uint16_t addr, uint16_t qty,
-                   uint16_t *out, void *userdata)
+    uint16_t *out, void *userdata)
 {
     server_app_ctx_t *app = (server_app_ctx_t *)userdata;
     (void)function_code;
@@ -126,7 +126,7 @@ int main(void)
     }
 
     fprintf(stderr, "[INFO] Modbus RTU server running on %s, unit ID %u\n",
-            SERIAL_DEVICE, (unsigned)SERVER_UNIT_ID);
+        SERIAL_DEVICE, (unsigned)SERVER_UNIT_ID);
 
     while (g_running) {
         sleep(1);

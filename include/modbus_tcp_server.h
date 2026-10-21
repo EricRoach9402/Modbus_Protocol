@@ -28,7 +28,7 @@ extern "C" {
  * 0xFF is used instead of 0x00 because Modbus defines Unit ID 0x00 as the
  * broadcast address, giving it distinct protocol semantics.
  */
-#define MB_TCP_SERVER_UNIT_ID_ANY   0xFFu
+#define MB_TCP_SERVER_UNIT_ID_ANY 0xFFu
 
 /**
  * Called when a Modbus master reads holding or input registers (FC03 / FC04).
@@ -48,7 +48,7 @@ extern "C" {
  *         Any other non-zero value is treated as MODBUS_EX_SERVER_DEVICE_FAILURE.
  */
 typedef int (*mb_srv_read_fn)(uint8_t function_code, uint16_t addr, uint16_t qty,
-                               uint16_t *out, void *userdata);
+    uint16_t *out, void *userdata);
 
 /**
  * Called when a Modbus master writes registers (FC06 single / FC16 multiple).
@@ -64,7 +64,7 @@ typedef int (*mb_srv_read_fn)(uint8_t function_code, uint16_t addr, uint16_t qty
  *         Any other non-zero value is treated as MODBUS_EX_SERVER_DEVICE_FAILURE.
  */
 typedef int (*mb_srv_write_fn)(uint16_t addr, uint16_t qty,
-                               const uint16_t *data, void *userdata);
+    const uint16_t *data, void *userdata);
 
 /**
  * Called when a Modbus master reads coils (FC01) or discrete inputs (FC02).
@@ -75,7 +75,7 @@ typedef int (*mb_srv_write_fn)(uint16_t addr, uint16_t qty,
  * @return 0 or a Modbus exception code, as for mb_srv_read_fn.
  */
 typedef int (*mb_srv_read_bits_fn)(uint8_t function_code, uint16_t addr, uint16_t qty,
-                                   uint8_t *out, void *userdata);
+    uint8_t *out, void *userdata);
 
 /**
  * Called when a Modbus master writes coils (FC05 single / FC15 multiple).
@@ -85,7 +85,7 @@ typedef int (*mb_srv_read_bits_fn)(uint8_t function_code, uint16_t addr, uint16_
  * @return 0 or a Modbus exception code, as for mb_srv_write_fn.
  */
 typedef int (*mb_srv_write_bits_fn)(uint16_t addr, uint16_t qty,
-                                    const uint8_t *bits, void *userdata);
+    const uint8_t *bits, void *userdata);
 
 /**
  * Server configuration.  All pointer fields must remain valid until
@@ -94,23 +94,23 @@ typedef int (*mb_srv_write_bits_fn)(uint16_t addr, uint16_t qty,
  * Fields that accept NULL / zero:
  *   - on_read / on_write / on_read_bits / on_write_bits:
  *                       NULL → the matching function codes reply ILLEGAL_FUNCTION
- *   - userdata:         application-defined context; can be NULL if not used by callbacks
- *   - logv:             NULL → suppress all log messages (silent mode)
- *   - log_userdata:     context passed to logv; can be NULL if not used
- *   - on_link:          NULL → no notification on client connect/disconnect
- *   - link_userdata:    context passed to on_link; can be NULL if on_link is NULL
- *   - recv_timeout_ms:  0 → use default (MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS)
- *   - max_clients:      0 → MB_TCP_DEFAULT_MAX_CLIENTS
+ *   - userdata: application-defined context; can be NULL if not used by callbacks
+ *   - logv: NULL → suppress all log messages (silent mode)
+ *   - log_userdata: context passed to logv; can be NULL if not used
+ *   - on_link: NULL → no notification on client connect/disconnect
+ *   - link_userdata: context passed to on_link; can be NULL if on_link is NULL
+ *   - recv_timeout_ms: 0 → use default (MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS)
+ *   - max_clients: 0 → MB_TCP_DEFAULT_MAX_CLIENTS
  *   - keepalive_*, idle_poll_ms: 0 → transport defaults (see mb_tcp_config_t)
  */
 
 /** Default per-request receive timeout applied to each accepted client socket. */
-#define MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS  5000u
+#define MB_TCP_SERVER_DEFAULT_RECV_TIMEOUT_MS 5000u
 
 typedef struct mb_tcp_server_config {
     uint16_t port;
     /** Accepted unit ID.  Use MB_TCP_SERVER_UNIT_ID_ANY to accept all unit IDs. */
-    uint8_t  unit_id;
+    uint8_t unit_id;
 
     /** Maximum simultaneously connected clients; 0 → MB_TCP_DEFAULT_MAX_CLIENTS. */
     uint16_t max_clients;
@@ -130,20 +130,20 @@ typedef struct mb_tcp_server_config {
     uint32_t idle_poll_ms;
 
     /** Handler for FC03 (holding) and FC04 (input) reads.  NULL → ILLEGAL_FUNCTION. */
-    mb_srv_read_fn  on_read;
+    mb_srv_read_fn on_read;
     /** Handler for FC06 (single) and FC16 (multiple) writes.  NULL → ILLEGAL_FUNCTION. */
     mb_srv_write_fn on_write;
     /** Handler for FC01 (coils) and FC02 (discrete inputs) reads.  NULL → ILLEGAL_FUNCTION. */
     mb_srv_read_bits_fn on_read_bits;
     /** Handler for FC05 (single) and FC15 (multiple) coil writes.  NULL → ILLEGAL_FUNCTION. */
     mb_srv_write_bits_fn on_write_bits;
-    void           *userdata;           /**< Context passed to all handlers; can be NULL. */
+    void *userdata; /**< Context passed to all handlers; can be NULL. */
 
-    mb_tcp_logv_fn  logv;               /**< Optional log sink; NULL → silent mode. */
-    void           *log_userdata;       /**< Context passed to logv; can be NULL.    */
+    mb_tcp_logv_fn logv; /**< Optional log sink; NULL → silent mode. */
+    void *log_userdata; /**< Context passed to logv; can be NULL. */
 
-    mb_tcp_link_fn  on_link;            /**< Optional connection event callback; NULL → ignore. */
-    void           *link_userdata;      /**< Context passed to on_link; can be NULL.  */
+    mb_tcp_link_fn on_link; /**< Optional connection event callback; NULL → ignore. */
+    void *link_userdata; /**< Context passed to on_link; can be NULL. */
 } mb_tcp_server_config_t;
 
 /**
@@ -151,8 +151,8 @@ typedef struct mb_tcp_server_config {
  * Do not modify fields directly after start.
  */
 typedef struct mb_tcp_server_ctx {
-    mb_tcp_ctx_t           transport;   /**< Owned transport context (internal). */
-    mb_tcp_server_config_t cfg;         /**< Copy of configuration. */
+    mb_tcp_ctx_t transport; /**< Owned transport context (internal). */
+    mb_tcp_server_config_t cfg; /**< Copy of configuration. */
 } mb_tcp_server_ctx_t;
 
 /**

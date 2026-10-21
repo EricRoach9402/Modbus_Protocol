@@ -28,28 +28,28 @@
 /* ── Test-fixture configuration ─────────────────────────────────────────── */
 
 /** Local port used by the primary embedded test server. */
-#define TEST_PORT           15020u
-#define TEST_UNIT_ID        1u
+#define TEST_PORT 15020u
+#define TEST_UNIT_ID 1u
 
 /** Separate port used by the logv-capture test (avoids port reuse race). */
-#define TEST_PORT_LOGV      15021u
+#define TEST_PORT_LOGV 15021u
 
 /** Raw scripted server that sends malformed responses. */
-#define TEST_PORT_RAW       15022u
+#define TEST_PORT_RAW 15022u
 
 /** Port with no listener, used to force a connect failure. */
-#define TEST_PORT_CLOSED    15023u
+#define TEST_PORT_CLOSED 15023u
 
 /** Servers started with non-default transport configuration. */
-#define TEST_PORT_CFG       15024u
-#define TEST_PORT_NO_KA     15025u
+#define TEST_PORT_CFG 15024u
+#define TEST_PORT_NO_KA 15025u
 
 /** Total number of holding registers in the mock device. */
-#define REG_BANK_SIZE   100u
+#define REG_BANK_SIZE 100u
 
 /* ── Mock register bank ─────────────────────────────────────────────────── */
 
-static uint16_t       reg_bank[REG_BANK_SIZE];
+static uint16_t reg_bank[REG_BANK_SIZE];
 static pthread_mutex_t reg_lock = PTHREAD_MUTEX_INITIALIZER;
 static unsigned int write_call_count = 0u;
 
@@ -59,7 +59,7 @@ static unsigned int write_call_count = 0u;
  * outside [0, REG_BANK_SIZE).
  */
 static int mock_read(uint8_t function_code, uint16_t addr, uint16_t qty,
-                     uint16_t *out, void *userdata)
+    uint16_t *out, void *userdata)
 {
     (void)userdata;
     if ((uint32_t)addr + (uint32_t)qty > (uint32_t)REG_BANK_SIZE) {
@@ -81,7 +81,7 @@ static uint8_t coil_bank[COIL_BANK_SIZE];
 
 /** Coils come from coil_bank; discrete inputs are ON where addr % 3 == 0. */
 static int mock_read_bits(uint8_t function_code, uint16_t addr, uint16_t qty,
-                          uint8_t *out, void *userdata)
+    uint8_t *out, void *userdata)
 {
     (void)userdata;
     if ((uint32_t)addr + (uint32_t)qty > (uint32_t)COIL_BANK_SIZE) {
@@ -230,9 +230,9 @@ static void test_fc16_write_multiple(mb_tcp_client_ctx_t *cli)
     uint16_t read_data[4] = {0u};
     rc = mb_tcp_client_read_holding_registers(cli, 20u, 4u, read_data);
     check("read back 4 registers at addr 20: return OK",
-          rc == MB_TCP_CLIENT_OK);
+        rc == MB_TCP_CLIENT_OK);
     check("read back values match what was written",
-          memcmp(write_data, read_data, sizeof(write_data)) == 0);
+        memcmp(write_data, read_data, sizeof(write_data)) == 0);
 
     /* Restore middle block. */
     uint16_t restore_mid[4] = {200u, 210u, 220u, 230u};
@@ -242,13 +242,13 @@ static void test_fc16_write_multiple(mb_tcp_client_ctx_t *cli)
     uint16_t boundary_data[3] = {0xAABBu, 0xCCDDu, 0xEEFFu};
     rc = mb_tcp_client_write_multiple_registers(cli, 97u, 3u, boundary_data);
     check("FC16 write 3 registers ending at last addr (97..99): return OK",
-          rc == MB_TCP_CLIENT_OK);
+        rc == MB_TCP_CLIENT_OK);
 
     uint16_t boundary_back[3] = {0u};
     rc = mb_tcp_client_read_holding_registers(cli, 97u, 3u, boundary_back);
     check("read back boundary block: values match",
-          rc == MB_TCP_CLIENT_OK &&
-          memcmp(boundary_data, boundary_back, sizeof(boundary_data)) == 0);
+        rc == MB_TCP_CLIENT_OK &&
+        memcmp(boundary_data, boundary_back, sizeof(boundary_data)) == 0);
 }
 
 /**
@@ -265,32 +265,32 @@ static void test_exception_handling(mb_tcp_client_ctx_t *cli)
     uint16_t out[20] = {0u};
     int rc = mb_tcp_client_read_holding_registers(cli, 90u, 20u, out);
     check("FC03 read beyond bank (90+20>100) → MODBUS_EX_ILLEGAL_DATA_ADDRESS",
-          rc == (int)MODBUS_EX_ILLEGAL_DATA_ADDRESS);
+        rc == (int)MODBUS_EX_ILLEGAL_DATA_ADDRESS);
 
     /* addr=99 + qty=2 = 101, which also exceeds REG_BANK_SIZE=100. */
     uint16_t data[2] = {1u, 2u};
     rc = mb_tcp_client_write_multiple_registers(cli, 99u, 2u, data);
     check("FC16 write beyond bank (99+2>100) → MODBUS_EX_ILLEGAL_DATA_ADDRESS",
-          rc == (int)MODBUS_EX_ILLEGAL_DATA_ADDRESS);
+        rc == (int)MODBUS_EX_ILLEGAL_DATA_ADDRESS);
 
     /* qty=0 is rejected client-side; no request is sent to the server. */
     uint16_t dummy = 0u;
     rc = mb_tcp_client_read_holding_registers(cli, 0u, 0u, &dummy);
     check("FC03 qty=0 rejected client-side → MB_TCP_CLIENT_ERR_ARG",
-          rc == MB_TCP_CLIENT_ERR_ARG);
+        rc == MB_TCP_CLIENT_ERR_ARG);
 
     rc = mb_tcp_client_write_multiple_registers(cli, 0u, 0u, &dummy);
     check("FC16 qty=0 rejected client-side → MB_TCP_CLIENT_ERR_ARG",
-          rc == MB_TCP_CLIENT_ERR_ARG);
+        rc == MB_TCP_CLIENT_ERR_ARG);
 
     /* NULL pointer rejected client-side. */
     rc = mb_tcp_client_read_holding_registers(cli, 0u, 1u, NULL);
     check("FC03 out=NULL rejected client-side → MB_TCP_CLIENT_ERR_ARG",
-          rc == MB_TCP_CLIENT_ERR_ARG);
+        rc == MB_TCP_CLIENT_ERR_ARG);
 
     rc = mb_tcp_client_write_multiple_registers(cli, 0u, 1u, NULL);
     check("FC16 data=NULL rejected client-side → MB_TCP_CLIENT_ERR_ARG",
-          rc == MB_TCP_CLIENT_ERR_ARG);
+        rc == MB_TCP_CLIENT_ERR_ARG);
 }
 
 /**
@@ -311,7 +311,7 @@ typedef struct {
 } log_capture_t;
 
 static void capture_logv(void *userdata, mb_tcp_log_level_t level,
-                          const char *fmt, va_list ap)
+    const char *fmt, va_list ap)
 {
     log_capture_t *cap = (log_capture_t *)userdata;
     cap->total_calls++;
@@ -333,26 +333,26 @@ static void test_logv_callback(void)
     log_capture_t srv_cap = {0};
     log_capture_t cli_cap = {0};
 
-    mb_tcp_server_ctx_t  srv  = {0};
+    mb_tcp_server_ctx_t srv = {0};
     mb_tcp_server_config_t srv_cfg = {
-        .port          = TEST_PORT_LOGV,
-        .unit_id       = TEST_UNIT_ID,
-        .on_read       = mock_read,
-        .on_write      = mock_write,
-        .logv          = capture_logv,
-        .log_userdata  = &srv_cap,
+        .port = TEST_PORT_LOGV,
+        .unit_id = TEST_UNIT_ID,
+        .on_read = mock_read,
+        .on_write = mock_write,
+        .logv = capture_logv,
+        .log_userdata = &srv_cap,
     };
     mb_tcp_server_start(&srv, &srv_cfg);
     usleep(100000u);
 
-    mb_tcp_client_ctx_t    cli     = {0};
+    mb_tcp_client_ctx_t cli = {0};
     mb_tcp_client_config_t cli_cfg = {
-        .remote_host         = "127.0.0.1",
-        .port                = TEST_PORT_LOGV,
-        .unit_id             = TEST_UNIT_ID,
+        .remote_host = "127.0.0.1",
+        .port = TEST_PORT_LOGV,
+        .unit_id = TEST_UNIT_ID,
         .response_timeout_ms = 1000u,
-        .logv                = capture_logv,
-        .log_userdata        = &cli_cap,
+        .logv = capture_logv,
+        .log_userdata = &cli_cap,
     };
     mb_tcp_client_connect(&cli, &cli_cfg);
 
@@ -364,7 +364,7 @@ static void test_logv_callback(void)
      * internally dispatched the out-of-range callback (no server-side warn
      * log for that path, but at minimum the connection debug line fires). */
     check("server logv received at least one call (connection debug)",
-          srv_cap.total_calls > 0);
+        srv_cap.total_calls > 0);
 
     /* The client logv should NOT be called during a normal (successful)
      * transaction.  Trigger an error by disconnecting then reading. */
@@ -373,7 +373,7 @@ static void test_logv_callback(void)
     int calls_before = cli_cap.total_calls;
     memset(&cli, 0, sizeof(cli));
     mb_tcp_client_connect(&cli, &cli_cfg);
-    mb_tcp_client_disconnect(&cli);     /* disconnect immediately */
+    mb_tcp_client_disconnect(&cli); /* disconnect immediately */
 
     /* Now attempt a read on the closed socket to provoke client-side logging. */
     mb_tcp_client_read_holding_registers(&cli, 0u, 1u, dummy);
@@ -381,10 +381,10 @@ static void test_logv_callback(void)
      * without logging.  The key check is that log_userdata pointer was wired
      * correctly (the counter struct address matches). */
     check("log_userdata pointer is forwarded to callback (pointer identity)",
-          srv_cfg.log_userdata == &srv_cap && cli_cfg.log_userdata == &cli_cap);
+        srv_cfg.log_userdata == &srv_cap && cli_cfg.log_userdata == &cli_cap);
 
     check("server log sink received calls (total > 0 after connection)",
-          srv_cap.total_calls > calls_before || srv_cap.total_calls > 0);
+        srv_cap.total_calls > calls_before || srv_cap.total_calls > 0);
 
     mb_tcp_client_disconnect(&cli);
     mb_tcp_server_stop(&srv);
@@ -396,7 +396,7 @@ static void test_logv_callback(void)
  * touching the socket.  Reconnects before returning.
  */
 static void test_not_connected_guard(mb_tcp_client_ctx_t *cli,
-                                      const mb_tcp_client_config_t *cli_cfg)
+    const mb_tcp_client_config_t *cli_cfg)
 {
     printf("\n-- Not-Connected Guard --\n");
 
@@ -405,15 +405,15 @@ static void test_not_connected_guard(mb_tcp_client_ctx_t *cli,
     uint16_t dummy = 0u;
     int rc = mb_tcp_client_read_holding_registers(cli, 0u, 1u, &dummy);
     check("FC03 read after disconnect → MB_TCP_CLIENT_ERR_NOT_CONNECTED",
-          rc == MB_TCP_CLIENT_ERR_NOT_CONNECTED);
+        rc == MB_TCP_CLIENT_ERR_NOT_CONNECTED);
 
     rc = mb_tcp_client_write_single_register(cli, 0u, dummy);
     check("FC06 write after disconnect → MB_TCP_CLIENT_ERR_NOT_CONNECTED",
-          rc == MB_TCP_CLIENT_ERR_NOT_CONNECTED);
+        rc == MB_TCP_CLIENT_ERR_NOT_CONNECTED);
 
     rc = mb_tcp_client_write_multiple_registers(cli, 0u, 1u, &dummy);
     check("FC16 write after disconnect → MB_TCP_CLIENT_ERR_NOT_CONNECTED",
-          rc == MB_TCP_CLIENT_ERR_NOT_CONNECTED);
+        rc == MB_TCP_CLIENT_ERR_NOT_CONNECTED);
 
     /* Reconnect so any subsequent suites can still run. */
     memset(cli, 0, sizeof(*cli));
@@ -440,20 +440,20 @@ static void test_lifecycle(const mb_tcp_client_config_t *cli_cfg)
     check("disconnect after failed connect is a no-op", ctx.initialized == 0);
 
     check("connect after failed connect succeeds",
-          mb_tcp_client_connect(&ctx, cli_cfg) == 0);
+        mb_tcp_client_connect(&ctx, cli_cfg) == 0);
     check("second connect on connected ctx is rejected",
-          mb_tcp_client_connect(&ctx, cli_cfg) != 0);
+        mb_tcp_client_connect(&ctx, cli_cfg) != 0);
 
     uint16_t value = 0u;
     check("ctx still usable after rejected reconnect",
-          mb_tcp_client_read_holding_registers(&ctx, 0u, 1u, &value) == MB_TCP_CLIENT_OK);
+        mb_tcp_client_read_holding_registers(&ctx, 0u, 1u, &value) == MB_TCP_CLIENT_OK);
 
     mb_tcp_client_disconnect(&ctx);
     mb_tcp_client_disconnect(&ctx);
     check("double disconnect is safe", ctx.initialized == 0 && ctx.sock < 0);
 
     check("reconnect after disconnect (no memset) succeeds",
-          mb_tcp_client_connect(&ctx, cli_cfg) == 0);
+        mb_tcp_client_connect(&ctx, cli_cfg) == 0);
     mb_tcp_client_disconnect(&ctx);
 }
 
@@ -581,23 +581,23 @@ static void test_malformed_responses(void)
         uint16_t out[2] = {0u, 0u};
         int rc = mb_tcp_client_read_holding_registers(&cli, 0u, 2u, out);
         check("byte_count larger than received data -> MB_TCP_CLIENT_ERR_FRAME",
-              rc == MB_TCP_CLIENT_ERR_FRAME);
+            rc == MB_TCP_CLIENT_ERR_FRAME);
 
         rc = mb_tcp_client_read_holding_registers(&cli, 0u, 2u, out);
         check("response without function code -> MB_TCP_CLIENT_ERR_FRAME",
-              rc == MB_TCP_CLIENT_ERR_FRAME);
+            rc == MB_TCP_CLIENT_ERR_FRAME);
 
         rc = mb_tcp_client_read_holding_registers(&cli, 0u, 2u, out);
         check("non-zero protocol id -> MB_TCP_CLIENT_ERR_FRAME",
-              rc == MB_TCP_CLIENT_ERR_FRAME);
+            rc == MB_TCP_CLIENT_ERR_FRAME);
 
         rc = mb_tcp_client_write_single_register(&cli, 5u, 0x1234u);
         check("FC06 echo mismatch -> MB_TCP_CLIENT_ERR_FRAME",
-              rc == MB_TCP_CLIENT_ERR_FRAME);
+            rc == MB_TCP_CLIENT_ERR_FRAME);
 
         rc = mb_tcp_client_write_single_register(&cli, 5u, 0x1234u);
         check("FC06 matching echo after errors -> MB_TCP_CLIENT_OK",
-              rc == MB_TCP_CLIENT_OK);
+            rc == MB_TCP_CLIENT_OK);
         mb_tcp_client_disconnect(&cli);
     }
 
@@ -628,7 +628,7 @@ static int connect_raw(uint16_t port)
 
 /** Send @p req and receive one reply; returns bytes received, or <= 0. */
 static ssize_t raw_transact(int sock, const uint8_t *req, size_t req_len,
-                            uint8_t *resp, size_t resp_cap)
+    uint8_t *resp, size_t resp_cap)
 {
     if (send(sock, req, req_len, MSG_NOSIGNAL) != (ssize_t)req_len) {
         return -1;
@@ -667,11 +667,11 @@ static void test_malformed_requests(void)
     }
 
     check("non-zero protocol id request gets no reply",
-          raw_transact(sock, bad_proto, sizeof(bad_proto), resp, sizeof(resp)) < 0);
+        raw_transact(sock, bad_proto, sizeof(bad_proto), resp, sizeof(resp)) < 0);
 
     ssize_t n = raw_transact(sock, good_read, sizeof(good_read), resp, sizeof(resp));
     check("connection still serves valid requests afterwards",
-          n == 11 && resp[1] == 0x02 && resp[7] == 0x03);
+        n == 11 && resp[1] == 0x02 && resp[7] == 0x03);
 
     pthread_mutex_lock(&reg_lock);
     unsigned int writes_before = write_call_count;
@@ -679,7 +679,7 @@ static void test_malformed_requests(void)
 
     n = raw_transact(sock, short_fc16, sizeof(short_fc16), resp, sizeof(resp));
     check("short FC16 -> ILLEGAL_DATA_VALUE exception",
-          n == 9 && resp[7] == 0x90 && resp[8] == MODBUS_EX_ILLEGAL_DATA_VALUE);
+        n == 9 && resp[7] == 0x90 && resp[8] == MODBUS_EX_ILLEGAL_DATA_VALUE);
 
     pthread_mutex_lock(&reg_lock);
     check("short FC16 does not call on_write", write_call_count == writes_before);
@@ -694,23 +694,23 @@ static void test_malformed_requests(void)
  * after a failed start, and when called twice.
  */
 static void test_server_lifecycle(mb_tcp_server_ctx_t *running,
-                                  const mb_tcp_server_config_t *running_cfg)
+    const mb_tcp_server_config_t *running_cfg)
 {
     printf("\n-- Server Start / Stop Lifecycle --\n");
 
     check("start on running ctx is rejected",
-          mb_tcp_server_start(running, running_cfg) != 0);
+        mb_tcp_server_start(running, running_cfg) != 0);
 
     mb_tcp_server_ctx_t srv = {0};
     mb_tcp_server_stop(&srv);
     check("stop on zero-initialized ctx is a no-op", srv.transport.initialized == 0);
 
     check("start on port already in use fails",
-          mb_tcp_server_start(&srv, running_cfg) != 0);
+        mb_tcp_server_start(&srv, running_cfg) != 0);
     mb_tcp_server_stop(&srv);
     mb_tcp_server_stop(&srv);
     check("stop after failed start and double stop are safe",
-          srv.transport.initialized == 0);
+        srv.transport.initialized == 0);
 }
 
 /**
@@ -723,49 +723,49 @@ static void test_fc04_and_bits(mb_tcp_client_ctx_t *cli, const mb_tcp_client_con
     uint16_t regs[3] = {0u, 0u, 0u};
     int rc = mb_tcp_client_read_input_registers(cli, 0u, 3u, regs);
     check("FC04 read routes to on_read with FC04",
-          rc == MB_TCP_CLIENT_OK && regs[0] == 1u && regs[1] == 11u && regs[2] == 21u);
+        rc == MB_TCP_CLIENT_OK && regs[0] == 1u && regs[1] == 11u && regs[2] == 21u);
 
     uint8_t bits[16];
     check("FC05 write coil 5 ON", mb_tcp_client_write_single_coil(cli, 5u, 1u) == MB_TCP_CLIENT_OK);
     memset(bits, 0xAA, sizeof(bits));
     rc = mb_tcp_client_read_coils(cli, 0u, 8u, bits);
     check("FC01 read back coil 5 ON, others OFF",
-          rc == MB_TCP_CLIENT_OK && bits[5] == 1u && bits[4] == 0u && bits[6] == 0u);
+        rc == MB_TCP_CLIENT_OK && bits[5] == 1u && bits[4] == 0u && bits[6] == 0u);
 
     static const uint8_t pattern[11] = { 1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1 };
     rc = mb_tcp_client_write_multiple_coils(cli, 20u, 11u, pattern);
     memset(bits, 0xAA, sizeof(bits));
     int rc_read = mb_tcp_client_read_coils(cli, 20u, 11u, bits);
     check("FC15 write 11 coils (crosses a byte) and FC01 read back",
-          rc == MB_TCP_CLIENT_OK && rc_read == MB_TCP_CLIENT_OK &&
-          memcmp(bits, pattern, sizeof(pattern)) == 0);
+        rc == MB_TCP_CLIENT_OK && rc_read == MB_TCP_CLIENT_OK &&
+        memcmp(bits, pattern, sizeof(pattern)) == 0);
 
     rc = mb_tcp_client_read_discrete_inputs(cli, 0u, 10u, bits);
     check("FC02 read discrete inputs",
-          rc == MB_TCP_CLIENT_OK && bits[0] == 1u && bits[1] == 0u && bits[3] == 1u &&
-          bits[9] == 1u);
+        rc == MB_TCP_CLIENT_OK && bits[0] == 1u && bits[1] == 0u && bits[3] == 1u &&
+        bits[9] == 1u);
 
     check("FC01 out-of-range -> ILLEGAL_DATA_ADDRESS",
-          mb_tcp_client_read_coils(cli, 60u, 8u, bits) == MODBUS_EX_ILLEGAL_DATA_ADDRESS);
+        mb_tcp_client_read_coils(cli, 60u, 8u, bits) == MODBUS_EX_ILLEGAL_DATA_ADDRESS);
     check("FC01 qty=0 rejected client-side",
-          mb_tcp_client_read_coils(cli, 0u, 0u, bits) == MB_TCP_CLIENT_ERR_ARG);
+        mb_tcp_client_read_coils(cli, 0u, 0u, bits) == MB_TCP_CLIENT_ERR_ARG);
     check("FC15 qty > MODBUS_MAX_WRITE_BITS rejected client-side",
-          mb_tcp_client_write_multiple_coils(cli, 0u, MODBUS_MAX_WRITE_BITS + 1u, pattern) ==
-          MB_TCP_CLIENT_ERR_ARG);
+        mb_tcp_client_write_multiple_coils(cli, 0u, MODBUS_MAX_WRITE_BITS + 1u, pattern) ==
+        MB_TCP_CLIENT_ERR_ARG);
 
     mb_tcp_client_ctx_t probe = {0};
     mb_tcp_client_config_t probe_cfg = *cli_cfg;
     probe_cfg.response_timeout_ms = 300u;
     check("set_unit_id on unconnected ctx -> NOT_CONNECTED",
-          mb_tcp_client_set_unit_id(&probe, 2u) == MB_TCP_CLIENT_ERR_NOT_CONNECTED);
+        mb_tcp_client_set_unit_id(&probe, 2u) == MB_TCP_CLIENT_ERR_NOT_CONNECTED);
     if (mb_tcp_client_connect(&probe, &probe_cfg) == 0) {
         mb_tcp_client_set_unit_id(&probe, 7u);
         check("unit id 7 is ignored by server -> TIMEOUT",
-              mb_tcp_client_read_holding_registers(&probe, 0u, 1u, regs) ==
-              MB_TCP_CLIENT_ERR_TIMEOUT);
+            mb_tcp_client_read_holding_registers(&probe, 0u, 1u, regs) ==
+            MB_TCP_CLIENT_ERR_TIMEOUT);
         mb_tcp_client_set_unit_id(&probe, TEST_UNIT_ID);
         check("unit id restored without reconnect -> OK",
-              mb_tcp_client_read_holding_registers(&probe, 0u, 1u, regs) == MB_TCP_CLIENT_OK);
+            mb_tcp_client_read_holding_registers(&probe, 0u, 1u, regs) == MB_TCP_CLIENT_OK);
         mb_tcp_client_disconnect(&probe);
     } else {
         check("probe client connect", 0);
@@ -843,7 +843,7 @@ static void test_server_transport_config(void)
              getsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, &len) == 0 &&
              getsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, &len) == 0;
     check("keepalive idle / interval / count applied",
-          ok && idle == 7 && intvl == 3 && cnt == 4);
+        ok && idle == 7 && intvl == 3 && cnt == 4);
 
     for (int i = 0; i <= CFG_CLIENTS; i++) {
         if (socks[i] >= 0) {
@@ -867,8 +867,8 @@ static void test_server_transport_config(void)
     len = sizeof(keep_alive);
     fd = g_cfg_link_fd;
     check("MB_TCP_KEEPALIVE_DISABLED leaves SO_KEEPALIVE off",
-          fd >= 0 && getsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, &len) == 0 &&
-          keep_alive == 0);
+        fd >= 0 && getsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, &len) == 0 &&
+        keep_alive == 0);
     if (sock >= 0) {
         close(sock);
     }
@@ -890,16 +890,16 @@ static void test_address_range(mb_tcp_client_ctx_t *cli)
     pthread_mutex_unlock(&reg_lock);
 
     check("FC03 addr 65535 qty 2 -> ILLEGAL_DATA_ADDRESS",
-          mb_tcp_client_read_holding_registers(cli, 65535u, 2u, regs) ==
-          MODBUS_EX_ILLEGAL_DATA_ADDRESS);
+        mb_tcp_client_read_holding_registers(cli, 65535u, 2u, regs) ==
+        MODBUS_EX_ILLEGAL_DATA_ADDRESS);
     check("FC01 addr 65535 qty 2 -> ILLEGAL_DATA_ADDRESS",
-          mb_tcp_client_read_coils(cli, 65535u, 2u, bits) == MODBUS_EX_ILLEGAL_DATA_ADDRESS);
+        mb_tcp_client_read_coils(cli, 65535u, 2u, bits) == MODBUS_EX_ILLEGAL_DATA_ADDRESS);
     check("FC15 addr 65535 qty 2 -> ILLEGAL_DATA_ADDRESS",
-          mb_tcp_client_write_multiple_coils(cli, 65535u, 2u, bits) ==
-          MODBUS_EX_ILLEGAL_DATA_ADDRESS);
+        mb_tcp_client_write_multiple_coils(cli, 65535u, 2u, bits) ==
+        MODBUS_EX_ILLEGAL_DATA_ADDRESS);
     check("FC16 addr 65535 qty 2 -> ILLEGAL_DATA_ADDRESS",
-          mb_tcp_client_write_multiple_registers(cli, 65535u, 2u, regs) ==
-          MODBUS_EX_ILLEGAL_DATA_ADDRESS);
+        mb_tcp_client_write_multiple_registers(cli, 65535u, 2u, regs) ==
+        MODBUS_EX_ILLEGAL_DATA_ADDRESS);
 
     pthread_mutex_lock(&reg_lock);
     check("overflowing FC16 does not call on_write", write_call_count == writes_before);
@@ -909,8 +909,8 @@ static void test_address_range(mb_tcp_client_ctx_t *cli)
     uint8_t adu[MODBUS_TCP_MAX_ADU_LENGTH];
     uint16_t many[MODBUS_MAX_WRITE_REGISTERS + 1u] = {0};
     check("mb_tcp_build_fc16_request rejects qty > MODBUS_MAX_WRITE_REGISTERS",
-          mb_tcp_build_fc16_request(&helper_ctx, 1u, 0u, MODBUS_MAX_WRITE_REGISTERS + 1u,
-                                    many, adu, sizeof(adu)) == -1);
+        mb_tcp_build_fc16_request(&helper_ctx, 1u, 0u, MODBUS_MAX_WRITE_REGISTERS + 1u,
+        many, adu, sizeof(adu)) == -1);
 }
 
 #define TEST_PORT_STREAM 15026u
@@ -1003,17 +1003,17 @@ static void test_stream_recovery(void)
     } else {
         uint16_t value = 0u;
         check("late reply -> TIMEOUT",
-              mb_tcp_client_read_holding_registers(&cli, 0u, 1u, &value) ==
-              MB_TCP_CLIENT_ERR_TIMEOUT);
+            mb_tcp_client_read_holding_registers(&cli, 0u, 1u, &value) ==
+            MB_TCP_CLIENT_ERR_TIMEOUT);
         check("next request skips the stale reply and gets its own",
-              mb_tcp_client_read_holding_registers(&cli, 0u, 1u, &value) ==
-              MB_TCP_CLIENT_OK && value == 0x2222u);
+            mb_tcp_client_read_holding_registers(&cli, 0u, 1u, &value) ==
+            MB_TCP_CLIENT_OK && value == 0x2222u);
         check("timeout mid-frame -> TIMEOUT",
-              mb_tcp_client_read_holding_registers(&cli, 0u, 1u, &value) ==
-              MB_TCP_CLIENT_ERR_TIMEOUT);
+            mb_tcp_client_read_holding_registers(&cli, 0u, 1u, &value) ==
+            MB_TCP_CLIENT_ERR_TIMEOUT);
         check("connection closed after a mid-frame timeout -> NOT_CONNECTED",
-              mb_tcp_client_read_holding_registers(&cli, 0u, 1u, &value) ==
-              MB_TCP_CLIENT_ERR_NOT_CONNECTED);
+            mb_tcp_client_read_holding_registers(&cli, 0u, 1u, &value) ==
+            MB_TCP_CLIENT_ERR_NOT_CONNECTED);
         mb_tcp_client_disconnect(&cli);
     }
 
@@ -1031,9 +1031,9 @@ int main(void)
     /* ── Start embedded server ─────────────────────────────────────── */
     mb_tcp_server_ctx_t server = {0};
     mb_tcp_server_config_t srv_cfg = {
-        .port     = TEST_PORT,
-        .unit_id  = TEST_UNIT_ID,
-        .on_read  = mock_read,
+        .port = TEST_PORT,
+        .unit_id = TEST_UNIT_ID,
+        .on_read = mock_read,
         .on_write = mock_write,
         .on_read_bits = mock_read_bits,
         .on_write_bits = mock_write_bits,
@@ -1041,19 +1041,19 @@ int main(void)
 
     if (mb_tcp_server_start(&server, &srv_cfg) != 0) {
         fprintf(stderr, "FATAL: server start failed on port %u\n",
-                (unsigned)TEST_PORT);
+            (unsigned)TEST_PORT);
         return 1;
     }
 
     /* Give the listener thread time to bind and enter accept(). */
-    usleep(100000u);  /* 100 ms */
+    usleep(100000u); /* 100 ms */
 
     /* ── Connect client ─────────────────────────────────────────────── */
-    mb_tcp_client_ctx_t  client  = {0};
+    mb_tcp_client_ctx_t client = {0};
     mb_tcp_client_config_t cli_cfg = {
-        .remote_host         = "127.0.0.1",
-        .port                = TEST_PORT,
-        .unit_id             = TEST_UNIT_ID,
+        .remote_host = "127.0.0.1",
+        .port = TEST_PORT,
+        .unit_id = TEST_UNIT_ID,
         .response_timeout_ms = 2000u,
     };
 
@@ -1090,7 +1090,7 @@ int main(void)
     /* ── Summary ────────────────────────────────────────────────────── */
     printf("\n==========================================\n");
     printf("  Results:  %d passed  |  %d failed\n",
-           g_pass_count, g_fail_count);
+        g_pass_count, g_fail_count);
     printf("==========================================\n\n");
 
     return (g_fail_count == 0) ? 0 : 1;

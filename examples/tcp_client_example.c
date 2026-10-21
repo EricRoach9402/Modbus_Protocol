@@ -34,19 +34,19 @@
  * ① NETWORK SETTINGS  (MODIFY HERE)
  * ════════════════════════════════════════════════════════════════════════════ */
 
-#define SERVER_IP               "192.168.1.90"   /* Remote server IPv4 address */
-#define SERVER_PORT             502         /* Match server_example.c; use 502 in production */
-#define SERVER_UNIT_ID          1u             /* Modbus unit / slave ID      */
+#define SERVER_IP "192.168.1.90"   /* Remote server IPv4 address */
+#define SERVER_PORT 502         /* Match server_example.c; use 502 in production */
+#define SERVER_UNIT_ID 1u             /* Modbus unit / slave ID */
 
-#define CONNECT_TIMEOUT_SEC     5u             /* TCP handshake timeout       */
-#define RESPONSE_TIMEOUT_MS     2000u          /* Per-request timeout         */
+#define CONNECT_TIMEOUT_SEC 5u             /* TCP handshake timeout */
+#define RESPONSE_TIMEOUT_MS 2000u          /* Per-request timeout */
 
 /** Polling interval in seconds between read cycles. */
-#define POLL_INTERVAL_SEC       2u
+#define POLL_INTERVAL_SEC 2u
 
 /* Optionally bind the socket to a specific interface (e.g. "eth0").
  * Set to NULL to let the OS choose based on routing. */
-#define BIND_IFACE              NULL
+#define BIND_IFACE NULL
 
 /* ════════════════════════════════════════════════════════════════════════════
  * ② REGISTER MAP  (MODIFY HERE)
@@ -58,14 +58,14 @@
  * R/W = read or write (use read or write functions as appropriate)
  * ════════════════════════════════════════════════════════════════════════════ */
 
-#define REG_TEMPERATURE         0x00   /* R   – temperature × 10  (e.g. 253 = 25.3 °C) */
-#define REG_HUMIDITY            0x01   /* R   – relative humidity %                     */
-#define REG_STATUS              0x02   /* R   – device status bitmask                   */
-#define REG_UPTIME_LOW          0x03   /* R   – uptime seconds, low  16 bits            */
-#define REG_UPTIME_HIGH         0x04   /* R   – uptime seconds, high 16 bits            */
-#define REG_SETPOINT            0x0A   /* R/W – target setpoint                         */
-#define REG_CONTROL             0x0B   /* R/W – control flags                           */
-#define REG_DEVICE_ID           0x14   /* R   – firmware / device identifier            */
+#define REG_TEMPERATURE 0x00   /* R   – temperature × 10  (e.g. 253 = 25.3 °C) */
+#define REG_HUMIDITY 0x01   /* R   – relative humidity % */
+#define REG_STATUS 0x02   /* R   – device status bitmask */
+#define REG_UPTIME_LOW 0x03   /* R   – uptime seconds, low  16 bits */
+#define REG_UPTIME_HIGH 0x04   /* R   – uptime seconds, high 16 bits */
+#define REG_SETPOINT 0x0A   /* R/W – target setpoint */
+#define REG_CONTROL 0x0B   /* R/W – control flags */
+#define REG_DEVICE_ID 0x14   /* R   – firmware / device identifier */
 
 /* ── Graceful shutdown ──────────────────────────────────────────────────── */
 
@@ -88,7 +88,7 @@ static void handle_signal(int sig)
  * ════════════════════════════════════════════════════════════════════════════ */
 
 typedef struct {
-    const char        *device_name;
+    const char *device_name;
     mb_tcp_log_level_t min_level;
 } client_log_ctx_t;
 
@@ -97,7 +97,7 @@ typedef struct {
  * ════════════════════════════════════════════════════════════════════════════ */
 
 static void client_log(void *userdata, mb_tcp_log_level_t level,
-                        const char *fmt, va_list ap)
+    const char *fmt, va_list ap)
 {
     /* userdata = cfg.log_userdata (passed from configuration).
      * In this example, it points to client_log_ctx_t which holds device_name
@@ -110,8 +110,8 @@ static void client_log(void *userdata, mb_tcp_log_level_t level,
 
     static const char * const level_tag[] = {
         [MB_TCP_LOG_DEBUG] = "DEBUG",
-        [MB_TCP_LOG_INFO]  = "INFO ",
-        [MB_TCP_LOG_WARN]  = "WARN ",
+        [MB_TCP_LOG_INFO] = "INFO ",
+        [MB_TCP_LOG_WARN] = "WARN ",
         [MB_TCP_LOG_ERROR] = "ERROR",
     };
 
@@ -122,7 +122,7 @@ static void client_log(void *userdata, mb_tcp_log_level_t level,
     strftime(time_buf, sizeof(time_buf), "%H:%M:%S", &tm_info);
 
     fprintf(stderr, "[%s][%s][%s] ", time_buf, log_ctx->device_name,
-            level_tag[level]);
+        level_tag[level]);
     vfprintf(stderr, fmt, ap);
     fprintf(stderr, "\n");
 }
@@ -172,7 +172,7 @@ static void poll_once(mb_tcp_client_ctx_t *cli)
      * The buffer is indexed by register offset within the block:
      *   block[0] = REG_TEMPERATURE, block[1] = REG_HUMIDITY, etc.
      * ──────────────────────────────────────────── */
-    uint16_t block[5] = {0u};  /* REG_TEMPERATURE=0 through REG_UPTIME_HIGH=4 */
+    uint16_t block[5] = {0u}; /* REG_TEMPERATURE=0 through REG_UPTIME_HIGH=4 */
     rc = mb_tcp_client_read_holding_registers(cli, REG_TEMPERATURE, 5u, block);
     if (rc == MB_TCP_CLIENT_OK) {
         /* Interpret register values according to your protocol definition.
@@ -180,19 +180,19 @@ static void poll_once(mb_tcp_client_ctx_t *cli)
          *   - Temperature is stored as (°C × 10), so divide by 10 to get °C.
          *   - Humidity and status are already in the correct format.
          *   - Uptime is split across two 16-bit registers; combine them. */
-        float    temperature = (float)block[REG_TEMPERATURE] / 10.0f;
-        uint16_t humidity    = block[REG_HUMIDITY];
-        uint16_t status      = block[REG_STATUS];
-        uint32_t uptime      = ((uint32_t)block[REG_UPTIME_HIGH] << 16)
+        float temperature = (float)block[REG_TEMPERATURE] / 10.0f;
+        uint16_t humidity = block[REG_HUMIDITY];
+        uint16_t status = block[REG_STATUS];
+        uint32_t uptime = ((uint32_t)block[REG_UPTIME_HIGH] << 16)
                              | (uint32_t)block[REG_UPTIME_LOW];
 
         printf("[POLL] Temperature: %.1f °C  |  Humidity: %u %%  |  "
-               "Status: 0x%04X  |  Uptime: %u s\n",
-               temperature, (unsigned)humidity,
-               (unsigned)status, (unsigned)uptime);
+            "Status: 0x%04X  |  Uptime: %u s\n",
+            temperature, (unsigned)humidity,
+            (unsigned)status, (unsigned)uptime);
     } else {
         fprintf(stderr, "[POLL] Read block failed: %s (rc=%d)\n",
-                client_err_str(rc), rc);
+            client_err_str(rc), rc);
     }
 
     /* ── Read individual register: setpoint ──────────────────────────── */
@@ -202,7 +202,7 @@ static void poll_once(mb_tcp_client_ctx_t *cli)
         printf("[POLL] Setpoint: %u\n", (unsigned)setpoint);
     } else {
         fprintf(stderr, "[POLL] Read setpoint failed: %s (rc=%d)\n",
-                client_err_str(rc), rc);
+            client_err_str(rc), rc);
     }
 
     uint16_t control = 0u;
@@ -211,7 +211,7 @@ static void poll_once(mb_tcp_client_ctx_t *cli)
         printf("[POLL] Control: 0x%04X\n", (unsigned)control);
     } else {
         fprintf(stderr, "[POLL] Read control failed: %s (rc=%d)\n",
-                client_err_str(rc), rc);
+            client_err_str(rc), rc);
     }
 
     uint16_t device_id = 0u;
@@ -220,7 +220,7 @@ static void poll_once(mb_tcp_client_ctx_t *cli)
         printf("[POLL] Device ID: 0x%04X\n", (unsigned)device_id);
     } else {
         fprintf(stderr, "[POLL] Read device ID failed: %s (rc=%d)\n",
-                client_err_str(rc), rc);
+            client_err_str(rc), rc);
     }
 
     /* MODIFY HERE: add more reads as your register map requires. */
@@ -240,13 +240,13 @@ static void initial_write(mb_tcp_client_ctx_t *cli)
     /* FC06 – Write Single Register (writes exactly 1 register).
      * Use this if the device requires or prefers the single-register function code.
      * Some older devices or specific protocols may mandate FC06. */
-    uint16_t setpoint = 300u;   /* MODIFY HERE: your startup setpoint value */
+    uint16_t setpoint = 300u; /* MODIFY HERE: your startup setpoint value */
     rc = mb_tcp_client_write_single_register(cli, REG_SETPOINT, setpoint);
     if (rc == MB_TCP_CLIENT_OK) {
         printf("[INIT] Setpoint written: %u\n", (unsigned)setpoint);
     } else {
         fprintf(stderr, "[INIT] Write setpoint failed: %s (rc=%d)\n",
-                client_err_str(rc), rc);
+            client_err_str(rc), rc);
     }
 
     /* FC16 – Write Multiple Registers (writes 1 or more contiguous registers).
@@ -254,16 +254,16 @@ static void initial_write(mb_tcp_client_ctx_t *cli)
      * FC16 can write a single register too (qty=1) if preferred; it's valid
      * per the Modbus specification. Choose FC06 vs FC16 based on device requirements. */
     uint16_t init_regs[2] = {
-        300u,       /* REG_SETPOINT  – MODIFY HERE */
-        0x0001u,    /* REG_CONTROL   – MODIFY HERE: startup control flags */
+        300u, /* REG_SETPOINT  – MODIFY HERE */
+        0x0001u, /* REG_CONTROL   – MODIFY HERE: startup control flags */
     };
     rc = mb_tcp_client_write_multiple_registers(cli, REG_SETPOINT, 2u, init_regs);
     if (rc == MB_TCP_CLIENT_OK) {
         printf("[INIT] Setpoint+Control written (FC16): setpoint=%u control=0x%04X\n",
-               (unsigned)init_regs[0], (unsigned)init_regs[1]);
+            (unsigned)init_regs[0], (unsigned)init_regs[1]);
     } else {
         fprintf(stderr, "[INIT] FC16 write failed: %s (rc=%d)\n",
-                client_err_str(rc), rc);
+            client_err_str(rc), rc);
     }
 }
 
@@ -285,24 +285,24 @@ int main(void)
      * To disable logging entirely, set cfg.logv = NULL (see below).
      * ──────────────────────────────────────────────────────────────────── */
     client_log_ctx_t log_ctx = {
-        .device_name = "SENSOR-01",       /* MODIFY HERE */
-        .min_level   = MB_TCP_LOG_DEBUG,  /* MODIFY HERE */
+        .device_name = "SENSOR-01", /* MODIFY HERE */
+        .min_level = MB_TCP_LOG_DEBUG, /* MODIFY HERE */
     };
 
     /* ── Build configuration ───────────────────────────────────────────── */
     mb_tcp_client_config_t cfg = {
-        .remote_host         = SERVER_IP,
-        .port                = SERVER_PORT,
-        .unit_id             = SERVER_UNIT_ID,
-        .bind_iface          = BIND_IFACE,          /* NULL = system default */
+        .remote_host = SERVER_IP,
+        .port = SERVER_PORT,
+        .unit_id = SERVER_UNIT_ID,
+        .bind_iface = BIND_IFACE, /* NULL = system default */
         .connect_timeout_sec = CONNECT_TIMEOUT_SEC,
         .response_timeout_ms = RESPONSE_TIMEOUT_MS,
-        .logv                = client_log,          /* Set to NULL for silent mode */
-        .log_userdata        = &log_ctx,            /* Can be NULL if logv doesn't need it */
+        .logv = client_log, /* Set to NULL for silent mode */
+        .log_userdata = &log_ctx, /* Can be NULL if logv doesn't need it */
     };
 
     printf("[INFO] Connecting to Modbus TCP server at %s:%u (unit ID %u)...\n",
-           SERVER_IP, (unsigned)SERVER_PORT, (unsigned)SERVER_UNIT_ID);
+        SERVER_IP, (unsigned)SERVER_PORT, (unsigned)SERVER_UNIT_ID);
 
     mb_tcp_client_ctx_t client = {0};
 
@@ -312,7 +312,7 @@ int main(void)
     }
 
     printf("[INFO] Connected.  Polling every %u second(s).  "
-           "Press Ctrl-C to stop.\n", (unsigned)POLL_INTERVAL_SEC);
+        "Press Ctrl-C to stop.\n", (unsigned)POLL_INTERVAL_SEC);
 
     /* ── One-time startup writes ───────────────────────────────────────── */
     initial_write(&client);
